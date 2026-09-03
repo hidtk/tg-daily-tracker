@@ -1,4 +1,4 @@
-import type { Activity, ActivityInput, AuthResponse, Entry, IeltsResponse, MockTest, Settings, SettingsView, StatsResponse, TodayResponse } from '@tracker/shared';
+import type { Activity, ActivityInput, AuthResponse, Entry, Homework, IeltsResponse, Lesson, LessonInput, MockTest, Settings, SettingsView, StatsResponse, TodayResponse } from '@tracker/shared';
 import { deviceTz, getInitData } from './tg';
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '';
@@ -67,4 +67,11 @@ export const api = {
   deleteMock: (id: number) => request<{ ok: true }>('DELETE', `/api/mocks/${id}`),
   deleteProof: (id: number) => request<{ ok: true }>('DELETE', `/api/proofs/${id}`),
   unlinkPartner: () => request<{ ok: true }>('DELETE', '/api/partner'),
+  lessons: () => request<{ lessons: Lesson[] }>('GET', '/api/lessons'),
+  createLesson: (l: LessonInput) => request<Lesson>('POST', '/api/lessons', l),
+  updateLesson: (id: number, l: Partial<LessonInput>) => request<Lesson>('PUT', `/api/lessons/${id}`, l),
+  deleteLesson: (id: number) => request<{ ok: true }>('DELETE', `/api/lessons/${id}`),
+  homeworks: () => request<{ homeworks: Homework[] }>('GET', '/api/homeworks'),
+  completeHomework: (id: number) => request<{ ok: true }>('POST', `/api/homeworks/${id}/done`),
+  deleteHomework: (id: number) => request<{ ok: true }>('DELETE', `/api/homeworks/${id}`),
 };

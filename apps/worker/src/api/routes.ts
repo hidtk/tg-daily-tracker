@@ -4,7 +4,9 @@ import {
   DEFAULT_SETTINGS,
   EntriesPutSchema,
   IsoDate,
+  LessonInputSchema,
   MockTestInputSchema,
+  weekdayMon0,
   SettingsPutSchema,
   ieltsOverall,
   monthBounds,
@@ -88,6 +90,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     IsoDate.parse(date);
     const activities = await repo.listActivities(user.id);
     const entries = await repo.entriesForDate(user.id, date);
+    const lessons = await repo.listLessons(user.id);
     const res: TodayResponse = {
       date,
       today,
@@ -96,6 +99,8 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
       entries,
       editable: isEditable(date, today),
       strict_mode: strict,
+      lessons_today: lessons.filter((l) => l.weekdays.includes(weekdayMon0(date))),
+      homeworks: date === today ? await repo.openHomeworks(user.id) : [],
     };
     return json(res);
   }
@@ -172,6 +177,43 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   if (path === '/partner' && method === 'DELETE') {
     await repo.updateUser(user.id, { partner_chat_id: null, partner_name: null });
     return json({ ok: true });
+  }
+
+  // ---- /api/lessons ----
+  if (path === '/lessons' && method === 'GET') return json({ lessons: await repo.listLessons(user.id) });
+  if (path === '/lessons' && method === 'POST') {
+    const input = LessonInputSchema.parse(await readJson(req));
+    if (!isValidTz(input.tz)) throw new HttpError(400, 'Invalid timezone');
+    return json(await repo.createLesson(user.id, input), 201);
+  }
+  const lessonMatch = path.match(/^\/lessons\/(\d+)$/);
+  if (lessonMatch) {
+    const id = Number(lessonMatch[1]);
+    if (method === 'PUT') {
+      const input = LessonInputSchema.partial().parse(await readJson(req));
+      const l = await repo.updateLesson(user.id, id, input);
+      if (!l) throw new HttpError(404, 'Not found');
+      return json(l);
+    }
+    if (method === 'DELETE') {
+      await repo.deleteLesson(user.id, id);
+      return json({ ok: true });
+    }
+  }
+
+  // ---- /api/homeworks ----
+  if (path === '/homeworks' && method === 'GET') return json({ homeworks: await repo.openHomeworks(user.id) });
+  const hwMatch = path.match(/^\/homeworks\/(\d+)(\/done)?$/);
+  if (hwMatch) {
+    const id = Number(hwMatch[1]);
+    if (method === 'POST' && hwMatch[2]) {
+      await repo.completeHomework(user.id, id);
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await repo.deleteHomework(user.id, id);
+      return json({ ok: true });
+    }
   }
 
   // ---- GET /api/ielts ----

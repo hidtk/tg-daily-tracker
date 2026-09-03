@@ -131,6 +131,40 @@ export const DEFAULT_SETTINGS: Settings = {
   ielts_daily_task: true,
 };
 
+export const LessonSchema = z.object({
+  id: z.number().int(),
+  title: z.string().min(1).max(60),
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1),
+  time: HHMM,
+  tz: z.string().min(1).max(64),
+  remind_morning: z.boolean(),
+  remind_before_min: z.number().int().min(0).max(720),
+});
+export type Lesson = z.infer<typeof LessonSchema>;
+export const LessonInputSchema = LessonSchema.omit({ id: true });
+export type LessonInput = z.infer<typeof LessonInputSchema>;
+
+export interface Homework {
+  id: number;
+  lesson_id: number | null;
+  text: string;
+  has_file: boolean;
+  tags: Skill[];
+  due_date: string | null;
+  created_at: string;
+  done_at: string | null;
+}
+
+/** Next date (>= from) on which one of the weekdays occurs. */
+export function nextWeekdayDate(from: string, weekdays: number[], includeFrom = true): string | null {
+  if (!weekdays.length) return null;
+  for (let i = includeFrom ? 0 : 1; i < 8; i++) {
+    const d = addDays(from, i);
+    if (weekdays.includes(weekdayMon0(d))) return d;
+  }
+  return null;
+}
+
 export const MockTestSchema = z.object({
   id: z.number().int(),
   date: IsoDate,
@@ -162,6 +196,8 @@ export interface TodayResponse {
   entries: Entry[];
   editable: boolean;
   strict_mode: boolean;
+  lessons_today: Lesson[];
+  homeworks: Homework[];
 }
 
 export interface StreakInfo {

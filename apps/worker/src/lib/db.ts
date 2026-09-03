@@ -1,4 +1,4 @@
-import type { Activity, ActivityInput, Entry, MockTest, Proof, Settings, Skill } from '@tracker/shared';
+import type { Activity, ActivityInput, Entry, Homework, Lesson, LessonInput, MockTest, Proof, Settings, Skill } from '@tracker/shared';
 import { TEMPLATE_ACTIVITIES } from '@tracker/shared';
 
 export interface UserRow {
@@ -57,6 +57,55 @@ interface ProofRow {
   file_id: string | null;
   text: string | null;
   created_at: string;
+}
+
+export interface LessonRow {
+  id: number;
+  user_id: number;
+  title: string;
+  weekdays: string;
+  time: string;
+  tz: string;
+  remind_morning: number;
+  remind_before_min: number;
+  last_morning_sent: string | null;
+  last_before_sent: string | null;
+}
+
+interface HomeworkRow {
+  id: number;
+  lesson_id: number | null;
+  text: string;
+  file_id: string | null;
+  tags: string | null;
+  due_date: string | null;
+  created_at: string;
+  done_at: string | null;
+}
+
+export function rowToLesson(r: LessonRow): Lesson {
+  return {
+    id: r.id,
+    title: r.title,
+    weekdays: JSON.parse(r.weekdays) as number[],
+    time: r.time,
+    tz: r.tz,
+    remind_morning: !!r.remind_morning,
+    remind_before_min: r.remind_before_min,
+  };
+}
+
+function rowToHomework(r: HomeworkRow): Homework {
+  return {
+    id: r.id,
+    lesson_id: r.lesson_id,
+    text: r.text,
+    has_file: !!r.file_id,
+    tags: r.tags ? (JSON.parse(r.tags) as Skill[]) : [],
+    due_date: r.due_date,
+    created_at: r.created_at,
+    done_at: r.done_at,
+  };
 }
 
 export interface PendingProof {
@@ -397,5 +446,86 @@ export class Repo {
 
   async deleteMock(userId: number, id: number) {
     await this.db.prepare('DELETE FROM mock_tests WHERE user_id = ? AND id = ?').bind(userId, id).run();
+  }
+
+  // ---- lessons ----
+
+  async listLessonRows(userId: number): Promise<LessonRow[]> {
+    const { results } = await this.db.prepare('SELECT * FROM lessons WHERE user_id = ? ORDER BY id').bind(userId).all<LessonRow>();
+    return results;
+  }
+
+  async listLessons(userId: number): Promise<Lesson[]> {
+    return (await this.listLessonRows(userId)).map(rowToLesson);
+  }
+
+  async allLessonRows(): Promise<LessonRow[]> {
+    const { results } = await this.db.prepare('SELECT * FROM lessons').all<LessonRow>();
+    return results;
+  }
+
+  async createLesson(userId: number, l: LessonInput): Promise<Lesson> {
+    const r = await this.db
+      .prepare('INSERT INTO lessons (user_id, title, weekdays, time, tz, remind_morning, remind_before_min) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(userId, l.title, JSON.stringify(l.weekdays), l.time, l.tz, l.remind_morning ? 1 : 0, l.remind_before_min)
+      .run();
+    return { id: Number(r.meta.last_row_id), ...l };
+  }
+
+  async updateLesson(userId: number, id: number, l: Partial<LessonInput>): Promise<Lesson | null> {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    const push = (k: string, v: unknown) => { sets.push(`${k} = ?`); vals.push(v); };
+    if (l.title !== undefined) push('title', l.title);
+    if (l.weekdays !== undefined) push('weekdays', JSON.stringify(l.weekdays));
+    if (l.time !== undefined) push('time', l.time);
+    if (l.tz !== undefined) push('tz', l.tz);
+    if (l.remind_morning !== undefined) push('remind_morning', l.remind_morning ? 1 : 0);
+    if (l.remind_before_min !== undefined) push('remind_before_min', l.remind_before_min);
+    if (sets.length) {
+      vals.push(userId, id);
+      await this.db.prepare(`UPDATE lessons SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`).bind(...vals).run();
+    }
+    const r = await this.db.prepare('SELECT * FROM lessons WHERE user_id = ? AND id = ?').bind(userId, id).first<LessonRow>();
+    return r ? rowToLesson(r) : null;
+  }
+
+  async deleteLesson(userId: number, id: number) {
+    await this.db.prepare('DELETE FROM lessons WHERE user_id = ? AND id = ?').bind(userId, id).run();
+  }
+
+  markLessonSent(id: number, col: 'last_morning_sent' | 'last_before_sent', date: string) {
+    return this.db.prepare(`UPDATE lessons SET ${col} = ? WHERE id = ?`).bind(date, id).run();
+  }
+
+  // ---- homework ----
+
+  async openHomeworks(userId: number): Promise<Homework[]> {
+    const { results } = await this.db
+      .prepare('SELECT * FROM homeworks WHERE user_id = ? AND done_at IS NULL ORDER BY COALESCE(due_date, "9999"), id')
+      .bind(userId)
+      .all<HomeworkRow>();
+    return results.map(rowToHomework);
+  }
+
+  async addHomework(userId: number, h: { text: string; file_id?: string | null; tags: Skill[]; due_date: string | null; lesson_id: number | null }): Promise<Homework> {
+    const r = await this.db
+      .prepare('INSERT INTO homeworks (user_id, lesson_id, text, file_id, tags, due_date) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(userId, h.lesson_id, h.text, h.file_id ?? null, JSON.stringify(h.tags), h.due_date)
+      .run();
+    return { id: Number(r.meta.last_row_id), lesson_id: h.lesson_id, text: h.text, has_file: !!h.file_id, tags: h.tags, due_date: h.due_date, created_at: new Date().toISOString(), done_at: null };
+  }
+
+  async getHomework(userId: number, id: number): Promise<(Homework & { file_id: string | null }) | null> {
+    const r = await this.db.prepare('SELECT * FROM homeworks WHERE user_id = ? AND id = ?').bind(userId, id).first<HomeworkRow>();
+    return r ? { ...rowToHomework(r), file_id: r.file_id } : null;
+  }
+
+  async completeHomework(userId: number, id: number) {
+    await this.db.prepare(`UPDATE homeworks SET done_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id = ? AND id = ? AND done_at IS NULL`).bind(userId, id).run();
+  }
+
+  async deleteHomework(userId: number, id: number) {
+    await this.db.prepare('DELETE FROM homeworks WHERE user_id = ? AND id = ?').bind(userId, id).run();
   }
 }

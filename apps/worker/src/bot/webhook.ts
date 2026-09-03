@@ -4,6 +4,7 @@ import { Repo, type UserRow } from '../lib/db';
 import { Bot, escapeHtml, type InlineKeyboardButton } from '../lib/telegram';
 import { helpText, partnerLinkedText, partnerText, todayStatusText, welcomeText } from './messages';
 import { formatTask, randomTask, taskForDay, taskKeyboard, type TaskKind } from './ielts-tasks';
+import { composeMorning, detectTags, homeworkKeyboard, homeworkListText, nextLessonDate } from './homework';
 
 interface TgChat {
   id: number;
@@ -127,8 +128,31 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
     } else if (cmd === '/task') {
       const arg = text.split(/\s+/)[1]?.toLowerCase() as TaskKind | undefined;
       const kinds: TaskKind[] = ['writing2', 'speaking', 'reading', 'vocab', 'writing1', 'listening', 'grammar'];
-      const task = arg && kinds.includes(arg) ? randomTask(arg) : taskForDay(user.tg_id, today, weekdayMon0(today), Math.floor(diffDays('2026-01-05', today) / 7));
-      await bot.sendMessage(chatId, formatTask(task, arg ? 'Задание' : 'Задание дня'), taskKeyboard(task.id));
+      const weekIndex = Math.floor(diffDays('2026-01-05', today) / 7);
+      if (arg && kinds.includes(arg)) {
+        const task = randomTask(arg);
+        await bot.sendMessage(chatId, formatTask(task, 'Задание'), taskKeyboard(task.id));
+      } else {
+        const hws = await repo.openHomeworks(user.id);
+        const { text: t, keyboard } = composeMorning(user.tg_id, today, weekIndex, hws);
+        const task = taskForDay(user.tg_id, today, weekdayMon0(today), weekIndex);
+        await bot.sendMessage(chatId, t, [...keyboard, ...taskKeyboard(task.id)]);
+      }
+    } else if (cmd === '/hw') {
+      const rest = text.slice(3).trim();
+      const hws = await repo.openHomeworks(user.id);
+      if (!rest) {
+        await bot.sendMessage(chatId, homeworkListText(hws, today), homeworkKeyboard(hws));
+      } else if (/^(done|сделал|готово)\b/i.test(rest)) {
+        const n = Number(rest.split(/\s+/)[1] ?? '1');
+        const h = hws[n - 1];
+        if (!h) await bot.sendMessage(chatId, 'Нет такой домашки. /hw — список.');
+        else {
+          await completeHomework(user, h.id, chatId, bot, repo, today);
+        }
+      } else {
+        await addHomework(user, rest, null, chatId, bot, repo, today);
+      }
     } else if (cmd === '/help') {
       await bot.sendMessage(chatId, helpText(), kb);
     } else if (cmd === '/partner') {
@@ -144,6 +168,11 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
         }
         await bot.sendMessage(chatId, partnerText(env.BOT_USERNAME, code, user.partner_name));
       }
+    } else if (msg.photo?.length && /^(дз|hw|домашк)/i.test(msg.caption?.trim() ?? '')) {
+      const fileId = msg.photo[msg.photo.length - 1].file_id;
+      await addHomework(user, msg.caption!.trim().replace(/^(дз|hw|домашка|домашнее задание)[:\s—-]*/i, '') || 'Домашка (см. фото)', fileId, chatId, bot, repo, today);
+    } else if (text && /^(дз|hw|домашк)/i.test(text) && !text.startsWith('/')) {
+      await addHomework(user, text.replace(/^(дз|hw|домашка|домашнее задание)[:\s—-]*/i, ''), null, chatId, bot, repo, today);
     } else if (msg.photo?.length) {
       // Largest photo size is last.
       const fileId = msg.photo[msg.photo.length - 1].file_id;
@@ -214,6 +243,25 @@ async function handleCallback(cq: NonNullable<Update['callback_query']>, bot: Bo
     return;
   }
   const [kind, ...rest] = data.split(':');
+
+  if (kind === 'hwd' || kind === 'hwx') {
+    const id = Number(rest[0]);
+    const h = await repo.getHomework(user.id, id);
+    if (!h || h.done_at) {
+      await bot.answerCallbackQuery(cq.id, 'Уже обработано');
+      return;
+    }
+    if (kind === 'hwx') {
+      await repo.deleteHomework(user.id, id);
+      await bot.answerCallbackQuery(cq.id, 'Удалено');
+    } else {
+      await completeHomework(user, id, chatId, bot, repo, todayInTz(user.tz));
+      await bot.answerCallbackQuery(cq.id, 'Засчитано ✅');
+    }
+    const hws = await repo.openHomeworks(user.id);
+    await bot.editMessageReplyMarkup(chatId, messageId, hws.length ? homeworkKeyboard(hws) : undefined);
+    return;
+  }
 
   if (kind === 'task') {
     const [k, currentId] = rest;
@@ -310,4 +358,43 @@ function plural(n: number, one: string, few: string, many: string): string {
   if (m10 === 1 && m100 !== 11) return one;
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
+}
+
+// ---------- homework ----------
+
+async function addHomework(user: UserRow, text: string, fileId: string | null, chatId: number, bot: Bot, repo: Repo, today: string) {
+  if (!text.trim() && !fileId) {
+    await bot.sendMessage(chatId, 'Напиши, что задали: <code>/hw Написать эссе про города, стр. 45 упр. 3</code>');
+    return;
+  }
+  const lessons = await repo.listLessons(user.id);
+  const next = nextLessonDate(lessons, today, false);
+  const tags = detectTags(text);
+  const h = await repo.addHomework(user.id, { text: text.trim(), file_id: fileId, tags, due_date: next?.date ?? null, lesson_id: next?.lesson.id ?? null });
+  const hws = await repo.openHomeworks(user.id);
+  await bot.sendMessage(
+    chatId,
+    `📌 Записал домашку${next ? ` к <b>${next.lesson.title}</b> (${next.date})` : ''} · навыки: <i>${tags.join(', ')}</i>.\n\nУтреннее задание дня теперь подстроится под неё: сначала домашка, потом короткое дополнение по другому навыку.\n\n${homeworkListText(hws, today)}`,
+    homeworkKeyboard(hws),
+  );
+  void h;
+}
+
+async function completeHomework(user: UserRow, id: number, chatId: number, bot: Bot, repo: Repo, today: string) {
+  const h = await repo.getHomework(user.id, id);
+  if (!h) return;
+  await repo.completeHomework(user.id, id);
+  // Doing homework = confirmed practice for the IELTS activity today.
+  const activities = await repo.listActivities(user.id);
+  const ielts = activities.find((a) => a.kind === 'ielts');
+  if (ielts) {
+    await repo.addProof(user.id, ielts.id, today, { type: 'chat', file_id: h.file_id, text: `📌 ДЗ: ${h.text.slice(0, 300)}` });
+    await repo.markDone(user.id, ielts.id, today);
+  }
+  const hws = await repo.openHomeworks(user.id);
+  await bot.sendMessage(
+    chatId,
+    `✅ Домашка сделана${ielts ? ` — <b>${ielts.emoji} ${escapeHtml(ielts.name)}</b> за сегодня засчитан` : ''}.${hws.length ? `\n\nОсталось ${hws.length}.` : ' Список пуст 🎉'}`,
+    ielts ? [MINUTE_PRESETS.slice(0, 4).map((m) => ({ text: `${m}м`, callback_data: `pm:${ielts.id}:${today}:${m}` }))] : undefined,
+  );
 }

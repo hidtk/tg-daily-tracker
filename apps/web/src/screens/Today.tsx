@@ -176,6 +176,36 @@ export function Today({ isNew, botUsername }: { isNew: boolean; botUsername: str
 
       {!data.editable && <div className="chip" style={{ marginBottom: 10 }}>Только просмотр — редактировать можно сегодня и вчера</div>}
 
+      {(data.lessons_today.length > 0 || data.homeworks.length > 0) && (
+        <div className="card" style={{ background: 'color-mix(in srgb, #a855f7 10%, var(--section))' }}>
+          {data.lessons_today.map((l) => (
+            <div key={l.id} className="row" style={{ justifyContent: 'space-between' }}>
+              <div>🎓 <b>{l.title}</b> сегодня в <b>{l.time}</b></div>
+              <span className="chip">{l.tz.split('/').pop()}</span>
+            </div>
+          ))}
+          {data.homeworks.length > 0 && (
+            <div style={{ marginTop: data.lessons_today.length ? 8 : 0 }}>
+              <div className="small muted" style={{ marginBottom: 4 }}>Домашка</div>
+              {data.homeworks.map((h) => (
+                <div key={h.id} className="row" style={{ alignItems: 'flex-start', padding: '4px 0' }}>
+                  <button type="button" className="mark done" style={{ flex: 'none', padding: '4px 6px' }} title="Сделал" onClick={async () => {
+                    haptic.success();
+                    await api.completeHomework(h.id);
+                    void load(date);
+                  }}><span className="box" /></button>
+                  <div className="grow small">
+                    <div>{h.text}</div>
+                    <div className="muted">{h.due_date ? (diffDays(today, h.due_date) === 0 ? 'к сегодня' : diffDays(today, h.due_date) < 0 ? 'просрочено' : `к ${h.due_date}`) : 'без срока'}{h.tags.length ? ` · ${h.tags.join(', ')}` : ''}</div>
+                  </div>
+                </div>
+              ))}
+              <div className="hint" style={{ marginTop: 4 }}>Добавить: боту «/hw текст» или фото с подписью «дз».</div>
+            </div>
+          )}
+        </div>
+      )}
+
       {scheduled.length === 0 && (
         <div className="card center muted">На этот день ничего не запланировано по расписанию.</div>
       )}

@@ -5,7 +5,8 @@ import { missedOn, skippedOn, weekStats } from '../lib/stats';
 import { Bot } from '../lib/telegram';
 import { eveningText, missedSelfText, missedText, morningText, weeklyText } from './messages';
 import { openAppKeyboard, webappUrl } from './webhook';
-import { formatTask, taskForDay, taskKeyboard } from './ielts-tasks';
+import { taskKeyboard, taskForDay } from './ielts-tasks';
+import { composeMorning, lessonReminderText } from './homework';
 
 /** A reminder is sent if local time is within [target, target + WINDOW_MIN) and not yet sent today. */
 const WINDOW_MIN = 90;
@@ -20,12 +21,13 @@ function inWindow(nowHHMM: string, targetHHMM: string): boolean {
   return diff >= 0 && diff < WINDOW_MIN;
 }
 
-export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number; missed: number; tasks: number }> {
+export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number; missed: number; tasks: number; lessons: number }> {
   const repo = new Repo(env.DB);
   const bot = new Bot(env.BOT_TOKEN);
   const kb = openAppKeyboard(webappUrl(env));
-  const counts = { morning: 0, evening: 0, weekly: 0, missed: 0, tasks: 0 };
+  const counts = { morning: 0, evening: 0, weekly: 0, missed: 0, tasks: 0, lessons: 0 };
   const users = await repo.allUsers();
+  const lessonRows = await repo.allLessonRows();
 
   for (const u of users) {
     try {
@@ -44,6 +46,29 @@ export async function runCron(env: Env, now = new Date()): Promise<{ morning: nu
       }
       if (u.last_evening_sent !== today && inWindow(time, u.evening_time)) {
         if (await sendEvening(repo, bot, u, today, kb)) counts.evening++;
+      }
+      // Lesson reminders (in the lesson's own timezone)
+      for (const l of lessonRows.filter((x) => x.user_id === u.id)) {
+        const lToday = todayInTz(l.tz, now);
+        const lTime = timeInTz(l.tz, now);
+        const weekdays = JSON.parse(l.weekdays) as number[];
+        if (!weekdays.includes(weekdayMon0(lToday))) continue;
+        if (l.remind_morning && l.last_morning_sent !== lToday && inWindow(lTime, u.morning_time)) {
+          await repo.markLessonSent(l.id, 'last_morning_sent', lToday);
+          const hws = await repo.openHomeworks(u.id);
+          await bot.sendMessage(u.tg_id, lessonReminderText(l.title, l.time, 'morning', hws, lToday, l.remind_before_min), kb);
+          counts.lessons++;
+        }
+        if (l.remind_before_min > 0 && l.last_before_sent !== lToday) {
+          const target = minutes(l.time) - l.remind_before_min;
+          const diff = minutes(lTime) - target;
+          if (diff >= 0 && diff < 30) {
+            await repo.markLessonSent(l.id, 'last_before_sent', lToday);
+            const hws = await repo.openHomeworks(u.id);
+            await bot.sendMessage(u.tg_id, lessonReminderText(l.title, l.time, 'before', hws, lToday, l.remind_before_min), kb);
+            counts.lessons++;
+          }
+        }
       }
       if (u.weekly_summary && weekdayMon0(today) === 6 && u.last_weekly_sent !== today && inWindow(time, u.weekly_time)) {
         if (await sendWeekly(repo, bot, u, today, kb)) counts.weekly++;
@@ -94,8 +119,10 @@ async function sendTask(repo: Repo, bot: Bot, u: UserRow, today: string): Promis
   const activities = await repo.listActivities(u.id);
   if (!activities.some((a) => a.kind === 'ielts')) return false;
   const weekIndex = Math.floor(diffDays('2026-01-05', today) / 7); // Monday-anchored week counter
+  const hws = await repo.openHomeworks(u.id);
+  const { text, keyboard } = composeMorning(u.tg_id, today, weekIndex, hws);
   const task = taskForDay(u.tg_id, today, weekdayMon0(today), weekIndex);
-  await bot.sendMessage(u.tg_id, formatTask(task), taskKeyboard(task.id));
+  await bot.sendMessage(u.tg_id, text, [...keyboard, ...taskKeyboard(task.id)]);
   return true;
 }
 

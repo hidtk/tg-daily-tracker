@@ -4,6 +4,7 @@ import { api, ApiError, exportUrl } from '../api';
 import { deviceTz, haptic, inTelegram, tg } from '../tg';
 import { useToast } from '../components/Toast';
 import { Field, Toggle } from '../components/ui';
+import { LessonsCard } from '../components/Lessons';
 
 const TZ_LIST = [
   'Europe/Moscow', 'Europe/Kaliningrad', 'Europe/Samara', 'Asia/Yekaterinburg', 'Asia/Omsk', 'Asia/Novosibirsk', 'Asia/Krasnoyarsk',
@@ -105,6 +106,9 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
           </>
         )}
       </div>
+
+      <div className="section-title">Занятия с преподавателем</div>
+      <LessonsCard />
 
       <div className="section-title">IELTS · задание дня</div>
       <div className="card">

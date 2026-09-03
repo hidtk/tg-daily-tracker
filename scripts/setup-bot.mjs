@@ -33,6 +33,7 @@ await call('setMyCommands', {
     { command: 'app', description: 'Открыть трекер' },
     { command: 'today', description: 'Статус за сегодня' },
     { command: 'task', description: 'Задание по IELTS на сегодня' },
+    { command: 'hw', description: 'Домашка: список / добавить / сделал' },
     { command: 'partner', description: 'Партнёр по ответственности' },
     { command: 'help', description: 'Справка' },
   ],
