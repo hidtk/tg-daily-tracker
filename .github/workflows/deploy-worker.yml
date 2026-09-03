@@ -74,7 +74,14 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.acct.outputs.id }}
         run: |
-          npx wrangler deploy --var BOT_USERNAME:"${{ vars.BOT_USERNAME }}" | tee deploy.log
+          set +e
+          npx wrangler deploy --var BOT_USERNAME:"${{ vars.BOT_USERNAME }}" 2>&1 | tee deploy.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          if [ "$RC" != "0" ]; then
+            echo "::error::wrangler deploy failed: $(grep -iE 'error|✘|X \[' deploy.log | tr -d '\n' | cut -c1-900)"
+            exit 1
+          fi
           URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Deployed to $URL"
