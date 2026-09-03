@@ -62,29 +62,29 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
 
       <div className="section-title">Напоминания</div>
       <div className="card">
-        <div className="row">
-          <Field label="Утро (план)">
-            <input className="input" type="time" value={s.morning_time} onChange={(e) => patch({ morning_time: e.target.value })} />
+        <div className="field-grid">
+          <Field label="Утро · план">
+            <input className="input" type="time" step={300} value={s.morning_time} onChange={(e) => patch({ morning_time: e.target.value })} />
           </Field>
-          <Field label="Вечер (факт)">
-            <input className="input" type="time" value={s.evening_time} onChange={(e) => patch({ evening_time: e.target.value })} />
+          <Field label="Вечер · факт">
+            <input className="input" type="time" step={300} value={s.evening_time} onChange={(e) => patch({ evening_time: e.target.value })} />
           </Field>
         </div>
         <Field label="Часовой пояс">
           <select className="input" value={s.tz} onChange={(e) => patch({ tz: e.target.value })}>
             {tzOptions.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          {devTz !== s.tz && (
-            <button className="btn ghost small" style={{ marginTop: 4 }} onClick={() => patch({ tz: devTz })}>Использовать {devTz}</button>
-          )}
         </Field>
-        <div className="small muted">Напоминание не приходит, если план (утром) или факт (вечером) уже заполнены.</div>
+        {devTz !== s.tz && (
+          <button className="btn secondary sm" onClick={() => patch({ tz: devTz })}>Использовать {devTz}</button>
+        )}
+        <div className="hint">Напоминание не приходит, если план (утром) или факт (вечером) уже заполнены.</div>
       </div>
 
       <div className="section-title">Подтверждения</div>
       <div className="card">
         <Toggle label="Строгий режим" sub="Без фото или чата с ИИ занятие не идёт в стрик и статистику" on={s.strict_mode} onChange={(v) => patch({ strict_mode: v })} />
-        <div className="small muted" style={{ marginTop: 8 }}>Подтверждение — это фото или пересланный диалог с ИИ, отправленный боту. Он спросит, к какой активности привязать.</div>
+        <div className="hint">Подтверждение — фото или пересланный диалог с ИИ, отправленный боту. Он спросит, к какой активности привязать.</div>
       </div>
 
       <div className="section-title">Партнёр по ответственности</div>
@@ -96,11 +96,11 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
               <button className="btn sm danger" onClick={async () => { await api.unlinkPartner(); haptic.success(); setS((x) => ({ ...x, partner: null })); toast('Партнёр отвязан'); }}>Отвязать</button>
             </div>
             <Toggle label="Сообщать о пропусках" sub="Утром, если вчера что-то не засчитано" on={s.partner_notify_missed} onChange={(v) => patch({ partner_notify_missed: v })} />
-            <div className="small muted">Недельные итоги по воскресеньям уходят партнёру всегда, пока он привязан.</div>
+            <div className="hint">Недельные итоги по воскресеньям уходят партнёру всегда, пока он привязан.</div>
           </>
         ) : (
           <>
-            <div className="small" style={{ marginBottom: 8 }}>Человек или группа, кому бот будет присылать твои итоги недели и пропуски. Социальное давление работает лучше любых напоминаний.</div>
+            <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>Человек или группа, кому бот будет присылать твои итоги недели и пропуски. Социальное давление работает лучше любых напоминаний.</div>
             <button className="btn secondary" onClick={() => { haptic.tap(); try { tg.openTelegramLink(`https://t.me/${s.bot_username}`); } catch { /* noop */ } }}>Получить ссылку: /partner в боте</button>
           </>
         )}
@@ -110,9 +110,11 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
       <div className="card">
         <Toggle label="Присылать по воскресеньям" on={s.weekly_summary} onChange={(v) => patch({ weekly_summary: v })} />
         {s.weekly_summary && (
-          <Field label="Время">
-            <input className="input" type="time" value={s.weekly_time} onChange={(e) => patch({ weekly_time: e.target.value })} />
-          </Field>
+          <div className="field-grid" style={{ marginTop: 10 }}>
+            <Field label="Время в воскресенье">
+              <input className="input" type="time" step={300} value={s.weekly_time} onChange={(e) => patch({ weekly_time: e.target.value })} />
+            </Field>
+          </div>
         )}
       </div>
 
@@ -127,7 +129,7 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
             <Field label="API key">
               <input className="input" type="password" placeholder="sk-…" value={s.ai_key ?? ''} onChange={(e) => patch({ ai_key: e.target.value || null })} />
             </Field>
-            <div className="small muted">В текущей версии вызовы не выполняются — настройки сохраняются для v2.</div>
+            <div className="hint">В текущей версии вызовы не выполняются — настройки сохраняются для v2.</div>
           </>
         )}
       </div>
@@ -135,7 +137,7 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
       <div className="section-title">Данные</div>
       <div className="card">
         <button className="btn secondary" onClick={doExport}>⬇️ Экспорт в JSON</button>
-        <div className="small muted" style={{ marginTop: 8 }}>Все активности и записи одним файлом — для бэкапа или переноса.</div>
+        <div className="hint">Все активности и записи одним файлом — для бэкапа или переноса.</div>
       </div>
 
       {dirty && (

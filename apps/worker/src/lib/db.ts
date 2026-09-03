@@ -42,6 +42,8 @@ interface EntryRow {
   done_note: string | null;
   minutes: number;
   skills: string | null;
+  skipped: number;
+  skip_reason: string | null;
   updated_at: string;
 }
 
@@ -91,6 +93,8 @@ function rowToEntry(r: EntryRow, proofs: Proof[] = []): Entry {
     done_note: r.done_note,
     minutes: r.minutes ?? 0,
     skills: r.skills ? (JSON.parse(r.skills) as Skill[]) : null,
+    skipped: !!r.skipped,
+    skip_reason: r.skip_reason,
     updated_at: r.updated_at,
     proofs,
   };
@@ -288,12 +292,13 @@ export class Repo {
 
   async upsertEntries(userId: number, entries: Omit<Entry, 'updated_at' | 'proofs'>[]) {
     const stmt = this.db.prepare(
-      `INSERT INTO entries (user_id, activity_id, date, planned, plan_note, done, done_note, minutes, skills, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      `INSERT INTO entries (user_id, activity_id, date, planned, plan_note, done, done_note, minutes, skills, skipped, skip_reason, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
        ON CONFLICT(activity_id, date) DO UPDATE SET
          planned = excluded.planned, plan_note = excluded.plan_note,
          done = excluded.done, done_note = excluded.done_note,
          minutes = excluded.minutes, skills = excluded.skills,
+         skipped = excluded.skipped, skip_reason = excluded.skip_reason,
          updated_at = excluded.updated_at
        WHERE entries.user_id = excluded.user_id`,
     );
@@ -309,6 +314,8 @@ export class Repo {
           e.done_note || null,
           e.minutes ?? 0,
           e.skills?.length ? JSON.stringify(e.skills) : null,
+          e.skipped ? 1 : 0,
+          e.skipped ? e.skip_reason || null : null,
         ),
       ),
     );
@@ -321,7 +328,7 @@ export class Repo {
         `INSERT INTO entries (user_id, activity_id, date, planned, done, minutes)
          VALUES (?, ?, ?, 0, 1, ?)
          ON CONFLICT(activity_id, date) DO UPDATE SET
-           done = 1,
+           done = 1, skipped = 0, skip_reason = NULL,
            minutes = CASE WHEN excluded.minutes > 0 THEN excluded.minutes ELSE entries.minutes END,
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE entries.user_id = excluded.user_id`,

@@ -63,6 +63,9 @@ export const EntrySchema = z.object({
   done_note: z.string().max(NOTE_MAX).nullable(),
   minutes: z.number().int().min(0).max(1440).default(0),
   skills: z.array(Skill).nullable().default(null),
+  /** conscious skip: "won't do today" + reason */
+  skipped: z.boolean().default(false),
+  skip_reason: z.string().max(NOTE_MAX).nullable().default(null),
   updated_at: z.string().optional(),
   /** server-side only: attached proofs */
   proofs: z.array(z.object({ id: z.number(), type: z.enum(['photo', 'chat']), text: z.string().nullable(), created_at: z.string() })).optional(),
@@ -73,6 +76,9 @@ export type Proof = NonNullable<Entry['proofs']>[number];
 export const EntriesPutSchema = z.object({
   entries: z.array(EntrySchema.omit({ updated_at: true, proofs: true })).min(1).max(100),
 });
+
+/** How many conscious skips per activity per ISO week do not break the streak. */
+export const FREE_SKIPS_PER_WEEK = 1;
 
 export function isConfirmed(e: Pick<Entry, 'done' | 'proofs'>): boolean {
   return e.done && (e.proofs?.length ?? 0) > 0;
@@ -293,14 +299,28 @@ export function computeStreak(
   doneDates: Set<string>,
   today: string,
   from: string,
+  skipDates: Set<string> = new Set(),
 ): { current: number; best: number } {
   let best = 0;
   let run = 0;
   let current = 0;
   let d = from;
   const scheduledDays: string[] = [];
+  // The first FREE_SKIPS_PER_WEEK conscious skips in a week are treated as unscheduled days.
+  const skipsUsed = new Map<string, number>();
   while (diffDays(d, today) >= 0) {
-    if (isScheduledOn(a, d)) scheduledDays.push(d);
+    if (isScheduledOn(a, d)) {
+      if (skipDates.has(d) && !doneDates.has(d)) {
+        const wk = addDays(d, -weekdayMon0(d));
+        const used = skipsUsed.get(wk) ?? 0;
+        skipsUsed.set(wk, used + 1);
+        if (used < FREE_SKIPS_PER_WEEK) {
+          d = addDays(d, 1);
+          continue;
+        }
+      }
+      scheduledDays.push(d);
+    }
     d = addDays(d, 1);
   }
   for (const day of scheduledDays) {

@@ -8,15 +8,20 @@ export async function computeStreaks(repo: Repo, userId: number, activities: Act
   const from = addDays(today, -STREAK_LOOKBACK_DAYS);
   const entries = await repo.entriesBetween(userId, from, today);
   const doneByActivity = new Map<number, Set<string>>();
+  const skipByActivity = new Map<number, Set<string>>();
   const totals = new Map<number, number>();
   for (const e of entries) {
+    if (e.skipped && !countsAsDone(e, strict)) {
+      if (!skipByActivity.has(e.activity_id)) skipByActivity.set(e.activity_id, new Set());
+      skipByActivity.get(e.activity_id)!.add(e.date);
+    }
     if (!countsAsDone(e, strict)) continue;
     if (!doneByActivity.has(e.activity_id)) doneByActivity.set(e.activity_id, new Set());
     doneByActivity.get(e.activity_id)!.add(e.date);
     totals.set(e.activity_id, (totals.get(e.activity_id) ?? 0) + 1);
   }
   return activities.map((a) => {
-    const { current, best } = computeStreak(a, doneByActivity.get(a.id) ?? new Set(), today, from);
+    const { current, best } = computeStreak(a, doneByActivity.get(a.id) ?? new Set(), today, from, skipByActivity.get(a.id));
     return { activity_id: a.id, current, best, done_total: totals.get(a.id) ?? 0 };
   });
 }
@@ -45,7 +50,7 @@ export function heatmapForRange(activities: Activity[], entries: Entry[], from: 
 export interface WeekStats {
   from: string;
   to: string;
-  perActivity: { activity: Activity; done: number; scheduled: number; unconfirmed: number }[];
+  perActivity: { activity: Activity; done: number; scheduled: number; unconfirmed: number; skipped: number }[];
   doneTotal: number;
   scheduledTotal: number;
 }
@@ -65,7 +70,8 @@ export async function weekStats(repo: Repo, userId: number, activities: Activity
     const mine = entries.filter((e) => e.activity_id === activity.id);
     const done = mine.filter((e) => countsAsDone(e, strict)).length;
     const unconfirmed = mine.filter((e) => e.done && !isConfirmed(e)).length;
-    return { activity, done, scheduled, unconfirmed };
+    const skipped = mine.filter((e) => e.skipped && !countsAsDone(e, strict)).length;
+    return { activity, done, scheduled, unconfirmed, skipped };
   });
   return {
     from,
@@ -76,10 +82,22 @@ export async function weekStats(repo: Repo, userId: number, activities: Activity
   };
 }
 
-/** Scheduled activities for `date` that do not count as done. */
+/** Scheduled activities for `date` that do not count as done and were not consciously skipped. */
 export function missedOn(activities: Activity[], entries: Entry[], date: string, strict: boolean): Activity[] {
   const byId = new Map(entries.filter((e) => e.date === date).map((e) => [e.activity_id, e]));
-  return activities.filter((a) => isScheduledOn(a, date) && !(byId.get(a.id) && countsAsDone(byId.get(a.id)!, strict)));
+  return activities.filter((a) => {
+    if (!isScheduledOn(a, date)) return false;
+    const e = byId.get(a.id);
+    return !(e && (countsAsDone(e, strict) || e.skipped));
+  });
+}
+
+/** Consciously skipped scheduled activities for `date` with reasons. */
+export function skippedOn(activities: Activity[], entries: Entry[], date: string, strict: boolean): { activity: Activity; reason: string | null }[] {
+  const byId = new Map(entries.filter((e) => e.date === date).map((e) => [e.activity_id, e]));
+  return activities
+    .filter((a) => isScheduledOn(a, date) && byId.get(a.id)?.skipped && !countsAsDone(byId.get(a.id)!, strict))
+    .map((a) => ({ activity: a, reason: byId.get(a.id)!.skip_reason }));
 }
 
 const IELTS_WEEKS = 12;

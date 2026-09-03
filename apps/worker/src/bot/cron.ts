@@ -1,7 +1,7 @@
 import { addDays, timeInTz, todayInTz, weekdayMon0 } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, type UserRow } from '../lib/db';
-import { missedOn, weekStats } from '../lib/stats';
+import { missedOn, skippedOn, weekStats } from '../lib/stats';
 import { Bot } from '../lib/telegram';
 import { eveningText, missedSelfText, missedText, morningText, weeklyText } from './messages';
 import { openAppKeyboard, webappUrl } from './webhook';
@@ -94,9 +94,10 @@ async function sendMissed(repo: Repo, bot: Bot, u: UserRow, today: string, kb: K
   const entries = await repo.entriesForDate(u.id, yesterday);
   const strict = !!u.strict_mode;
   const missed = missedOn(activities, entries, yesterday, strict);
-  if (!missed.length) return false;
+  const skipped = skippedOn(activities, entries, yesterday, strict);
+  if (!missed.length && !skipped.length) return false;
   const partnerNotified = !!(u.partner_chat_id && u.partner_notify_missed);
-  if (partnerNotified) await bot.sendMessage(u.partner_chat_id!, missedText(u.first_name, yesterday, missed, strict));
-  await bot.sendMessage(u.tg_id, missedSelfText(yesterday, missed, partnerNotified ? u.partner_name : null), kb);
+  if (partnerNotified) await bot.sendMessage(u.partner_chat_id!, missedText(u.first_name, yesterday, missed, skipped, strict));
+  await bot.sendMessage(u.tg_id, missedSelfText(yesterday, missed, skipped, partnerNotified ? u.partner_name : null), kb);
   return true;
 }

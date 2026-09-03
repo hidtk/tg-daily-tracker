@@ -37,6 +37,7 @@ export function helpText(): string {
 function mark(e: Entry | undefined, strict: boolean): string {
   if (!e) return '⬜';
   if (isConfirmed(e)) return '✅';
+  if (e.skipped && !e.done) return '⏸';
   if (e.done) return strict ? '☑️' : '✅';
   return '⬜';
 }
@@ -79,10 +80,11 @@ export function eveningText(date: string, activities: Activity[], entries: Entry
 
 export function weeklyText(cur: WeekStats, prev: WeekStats, strict: boolean, ownerName?: string): string {
   const pct = (d: number, s: number) => (s ? Math.round((d / s) * 100) : 0);
-  const lines = cur.perActivity.map(({ activity, done, scheduled, unconfirmed }) => {
+  const lines = cur.perActivity.map(({ activity, done, scheduled, unconfirmed, skipped }) => {
     const bar = scheduled ? '▰'.repeat(Math.min(7, Math.round((done / scheduled) * 7))).padEnd(7, '▱') : '———————';
     const unc = strict && unconfirmed ? ` <i>(+${unconfirmed} без подтв.)</i>` : '';
-    return `${activity.emoji} <b>${escapeHtml(activity.name)}</b>: ${done} из ${scheduled}  ${bar}${unc}`;
+    const sk = skipped ? ` <i>(⏸ ${skipped})</i>` : '';
+    return `${activity.emoji} <b>${escapeHtml(activity.name)}</b>: ${done} из ${scheduled}  ${bar}${unc}${sk}`;
   });
   const best = [...cur.perActivity].filter((x) => x.scheduled > 0).sort((a, b) => pct(b.done, b.scheduled) - pct(a.done, a.scheduled) || b.done - a.done)[0];
   const curPct = pct(cur.doneTotal, cur.scheduledTotal);
@@ -129,12 +131,24 @@ export function partnerLinkedText(ownerName: string): string {
   return `🤝 Ты теперь партнёр по ответственности для <b>${escapeHtml(ownerName)}</b>.\n\nПо воскресеньям я буду присылать итоги недели, а если день пропущен — короткое уведомление. Твоя задача простая: спросить «как дела?» 🙂`;
 }
 
-export function missedText(ownerName: string, date: string, missed: Activity[], strict: boolean): string {
-  const list = missed.map((a) => `${a.emoji} ${escapeHtml(a.name)}`).join('\n');
-  return `⚠️ <b>${escapeHtml(ownerName)}</b> вчера (${fmtDateRu(date)}) ${strict ? 'не подтвердил' : 'не сделал'}:\n\n${list}\n\nМожет, стоит спросить, что случилось?`;
+export function missedText(ownerName: string, date: string, missed: Activity[], skipped: { activity: Activity; reason: string | null }[], strict: boolean): string {
+  const parts: string[] = [];
+  if (missed.length) {
+    const list = missed.map((a) => `${a.emoji} ${escapeHtml(a.name)}`).join('\n');
+    parts.push(`⚠️ <b>${escapeHtml(ownerName)}</b> вчера (${fmtDateRu(date)}) ${strict ? 'не подтвердил' : 'не сделал'}:\n\n${list}`);
+  }
+  if (skipped.length) {
+    const list = skipped.map(({ activity, reason }) => `⏸ ${activity.emoji} ${escapeHtml(activity.name)}${reason ? ` — <i>${escapeHtml(reason)}</i>` : ''}`).join('\n');
+    parts.push(`${missed.length ? '' : `<b>${escapeHtml(ownerName)}</b> вчера (${fmtDateRu(date)}) `}осознанно пропустил:\n\n${list}`);
+  }
+  parts.push(missed.length ? 'Может, стоит спросить, что случилось?' : 'Хотя бы честно 🙂');
+  return parts.join('\n\n');
 }
 
-export function missedSelfText(date: string, missed: Activity[], partnerName: string | null): string {
-  const list = missed.map((a) => `${a.emoji} ${escapeHtml(a.name)}`).join('\n');
+export function missedSelfText(date: string, missed: Activity[], skipped: { activity: Activity; reason: string | null }[], partnerName: string | null): string {
+  const list = [
+    ...missed.map((a) => `${a.emoji} ${escapeHtml(a.name)}`),
+    ...skipped.map(({ activity, reason }) => `⏸ ${activity.emoji} ${escapeHtml(activity.name)}${reason ? ` — <i>${escapeHtml(reason)}</i>` : ''}`),
+  ].join('\n');
   return `Вчера (${fmtDateRu(date)}) не засчитано:\n\n${list}${partnerName ? `\n\n${escapeHtml(partnerName)} уже знает 😉 Сегодня — новый день.` : '\n\nСегодня — новый день.'}`;
 }

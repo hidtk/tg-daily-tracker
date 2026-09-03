@@ -12,7 +12,7 @@ type Draft = Record<number, DraftEntry>; // by activity_id
 const draftKey = (date: string) => `draft:${date}`;
 
 function emptyEntry(activity_id: number, date: string): DraftEntry {
-  return { activity_id, date, planned: false, plan_note: null, done: false, done_note: null, minutes: 0, skills: null, proofs: [] };
+  return { activity_id, date, planned: false, plan_note: null, done: false, done_note: null, minutes: 0, skills: null, skipped: false, skip_reason: null, proofs: [] };
 }
 
 function loadDraft(date: string): Draft | null {
@@ -216,6 +216,7 @@ export function Today({ isNew, botUsername }: { isNew: boolean; botUsername: str
 function statusOf(e: DraftEntry | undefined, strict: boolean): { text: string; cls: string } | null {
   if (!e) return null;
   const confirmed = isConfirmed(e);
+  if (e.skipped && !e.done) return { text: 'Осознанный пропуск — в стрик не идёт как провал (1 раз в неделю), партнёр увидит причину', cls: 'skip' };
   if (e.done && strict && !confirmed) return { text: 'Отмечено, но не подтверждено — не идёт в стрик', cls: 'warn' };
   if (e.planned && e.done) return { text: confirmed ? 'План ✓ · Факт ✓ · Подтверждено' : 'План ✓ · Факт ✓', cls: 'good' };
   if (e.planned && !e.done) return { text: 'Запланировано, ещё не отмечено', cls: '' };
@@ -274,18 +275,39 @@ function ActivityCard({
             onClick={() => { haptic.tap(); onChange({ planned: !e?.planned }); }}
           >
             <span className="box">{e?.planned ? '✓' : ''}</span>
-            <span className="lbl">Планирую</span>
+            <span className="lbl">План</span>
           </button>
           <button
             type="button"
             className={`mark done ${e?.done ? 'on' : ''} ${e?.done && strict && !isConfirmed(e) ? 'unconfirmed' : ''}`}
             disabled={!editable}
-            onClick={() => { e?.done ? haptic.tap() : haptic.success(); onChange({ done: !e?.done }); }}
+            onClick={() => { e?.done ? haptic.tap() : haptic.success(); onChange({ done: !e?.done, skipped: false }); }}
           >
             <span className="box">{e?.done ? (strict && !isConfirmed(e) ? '·' : '✓') : ''}</span>
-            <span className="lbl">Сделано</span>
+            <span className="lbl">Сделал</span>
+          </button>
+          <button
+            type="button"
+            className={`mark skip ${e?.skipped && !e?.done ? 'on' : ''}`}
+            disabled={!editable}
+            title="Не буду сегодня"
+            onClick={() => { haptic.warning(); onChange({ skipped: !(e?.skipped && !e?.done), done: false }); }}
+          >
+            <span className="box">{e?.skipped && !e?.done ? '⏸' : ''}</span>
+            <span className="lbl">Не буду</span>
           </button>
         </div>
+        {e?.skipped && !e?.done && (
+          <textarea
+            className="note"
+            placeholder="Почему? (болею, экзамен, нет сил — честно)"
+            maxLength={NOTE_MAX}
+            rows={1}
+            disabled={!editable}
+            value={e?.skip_reason ?? ''}
+            onChange={(ev) => onChange({ skip_reason: ev.target.value })}
+          />
+        )}
         {(e?.planned || e?.plan_note) && (
           <textarea
             className="note"
