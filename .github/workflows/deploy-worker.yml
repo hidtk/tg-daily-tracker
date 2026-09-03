@@ -38,9 +38,15 @@ jobs:
         run: |
           ID="${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           if [ -z "$ID" ]; then
-            ID=$(curl -sf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts | jq -r '.result[0].id')
+            RESP=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts)
+            echo "$RESP" | jq '{success, errors, accounts: [.result[]? | {id, name}]}'
+            ID=$(echo "$RESP" | jq -r '.result[0].id // empty')
           fi
-          [ -n "$ID" ] && [ "$ID" != "null" ] || { echo "Cannot resolve account id"; exit 1; }
+          if [ -z "$ID" ]; then
+            echo "::error::Cannot resolve Cloudflare account id. Check CLOUDFLARE_API_TOKEN permissions (needs Account Settings:Read, Workers Scripts:Edit, D1:Edit) or set CLOUDFLARE_ACCOUNT_ID secret."
+            npx wrangler whoami || true
+            exit 1
+          fi
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
       - name: Ensure D1 database exists
