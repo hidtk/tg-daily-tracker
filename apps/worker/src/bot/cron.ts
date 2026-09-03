@@ -1,10 +1,11 @@
-import { addDays, timeInTz, todayInTz, weekdayMon0 } from '@tracker/shared';
+import { addDays, diffDays, timeInTz, todayInTz, weekdayMon0 } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, type UserRow } from '../lib/db';
 import { missedOn, skippedOn, weekStats } from '../lib/stats';
 import { Bot } from '../lib/telegram';
 import { eveningText, missedSelfText, missedText, morningText, weeklyText } from './messages';
 import { openAppKeyboard, webappUrl } from './webhook';
+import { formatTask, taskForDay, taskKeyboard } from './ielts-tasks';
 
 /** A reminder is sent if local time is within [target, target + WINDOW_MIN) and not yet sent today. */
 const WINDOW_MIN = 90;
@@ -19,11 +20,11 @@ function inWindow(nowHHMM: string, targetHHMM: string): boolean {
   return diff >= 0 && diff < WINDOW_MIN;
 }
 
-export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number; missed: number }> {
+export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number; missed: number; tasks: number }> {
   const repo = new Repo(env.DB);
   const bot = new Bot(env.BOT_TOKEN);
   const kb = openAppKeyboard(webappUrl(env));
-  const counts = { morning: 0, evening: 0, weekly: 0, missed: 0 };
+  const counts = { morning: 0, evening: 0, weekly: 0, missed: 0, tasks: 0 };
   const users = await repo.allUsers();
 
   for (const u of users) {
@@ -37,6 +38,9 @@ export async function runCron(env: Env, now = new Date()): Promise<{ morning: nu
       }
       if (u.last_morning_sent !== today && inWindow(time, u.morning_time)) {
         if (await sendMorning(repo, bot, u, today, kb)) counts.morning++;
+      }
+      if ((u.ielts_daily_task ?? 1) && u.last_task_sent !== today && inWindow(time, u.morning_time)) {
+        if (await sendTask(repo, bot, u, today)) counts.tasks++;
       }
       if (u.last_evening_sent !== today && inWindow(time, u.evening_time)) {
         if (await sendEvening(repo, bot, u, today, kb)) counts.evening++;
@@ -82,6 +86,16 @@ async function sendWeekly(repo: Repo, bot: Bot, u: UserRow, today: string, kb: K
   const prev = await weekStats(repo, u.id, activities, addDays(cur.from, -1), strict);
   await bot.sendMessage(u.tg_id, weeklyText(cur, prev, strict), kb);
   if (u.partner_chat_id) await bot.sendMessage(u.partner_chat_id, weeklyText(cur, prev, strict, u.first_name));
+  return true;
+}
+
+async function sendTask(repo: Repo, bot: Bot, u: UserRow, today: string): Promise<boolean> {
+  await repo.markSent(u.id, 'last_task_sent', today);
+  const activities = await repo.listActivities(u.id);
+  if (!activities.some((a) => a.kind === 'ielts')) return false;
+  const weekIndex = Math.floor(diffDays('2026-01-05', today) / 7); // Monday-anchored week counter
+  const task = taskForDay(u.tg_id, today, weekdayMon0(today), weekIndex);
+  await bot.sendMessage(u.tg_id, formatTask(task), taskKeyboard(task.id));
   return true;
 }
 

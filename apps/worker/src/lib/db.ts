@@ -26,6 +26,8 @@ export interface UserRow {
   ielts_exam_date: string | null;
   ielts_deadline_changed_on: string | null;
   ielts_weekly_hours: number;
+  ielts_daily_task: number;
+  last_task_sent: string | null;
 }
 
 interface ActivityRow extends Omit<Activity, 'schedule_days'> {
@@ -118,6 +120,7 @@ export function userSettings(u: UserRow): Settings {
     ielts_target: u.ielts_target ?? 7,
     ielts_exam_date: u.ielts_exam_date,
     ielts_weekly_hours: u.ielts_weekly_hours ?? 7,
+    ielts_daily_task: (u.ielts_daily_task ?? 1) !== 0,
   };
 }
 
@@ -174,7 +177,7 @@ export class Repo {
     return this.updateUser(userId, patch);
   }
 
-  markSent(userId: number, col: 'last_morning_sent' | 'last_evening_sent' | 'last_weekly_sent' | 'last_partner_report', date: string) {
+  markSent(userId: number, col: 'last_morning_sent' | 'last_evening_sent' | 'last_weekly_sent' | 'last_partner_report' | 'last_task_sent', date: string) {
     return this.db.prepare(`UPDATE users SET ${col} = ? WHERE id = ?`).bind(date, userId).run();
   }
 

@@ -106,6 +106,12 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
         )}
       </div>
 
+      <div className="section-title">IELTS · задание дня</div>
+      <div className="card">
+        <Toggle label="Присылать задание утром" sub="Пн Writing T2 · Вт Speaking · Ср Reading · Чт слова · Пт Writing T1 · Сб Listening · Вс грамматика" on={s.ielts_daily_task} onChange={(v) => patch({ ielts_daily_task: v })} />
+        <div className="hint">В любой момент: /task в боте. Ответ (эссе, голосовое, фото тетради) — это подтверждение занятия.</div>
+      </div>
+
       <div className="section-title">Недельная сводка</div>
       <div className="card">
         <Toggle label="Присылать по воскресеньям" on={s.weekly_summary} onChange={(v) => patch({ weekly_summary: v })} />

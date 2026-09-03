@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN ielts_daily_task INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN last_task_sent TEXT;

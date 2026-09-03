@@ -1,8 +1,9 @@
-import { MINUTE_PRESETS, addDays, isConfirmed, isScheduledOn, todayInTz } from '@tracker/shared';
+import { MINUTE_PRESETS, addDays, diffDays, isConfirmed, isScheduledOn, todayInTz, weekdayMon0 } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, type UserRow } from '../lib/db';
 import { Bot, escapeHtml, type InlineKeyboardButton } from '../lib/telegram';
 import { helpText, partnerLinkedText, partnerText, todayStatusText, welcomeText } from './messages';
+import { formatTask, randomTask, taskForDay, taskKeyboard, type TaskKind } from './ielts-tasks';
 
 interface TgChat {
   id: number;
@@ -20,6 +21,8 @@ interface Update {
     caption?: string;
     photo?: { file_id: string; file_size?: number; width: number; height: number }[];
     document?: { file_id: string; mime_type?: string };
+    voice?: { file_id: string; duration: number };
+    video_note?: { file_id: string; duration: number };
     forward_origin?: unknown;
     forward_from?: unknown;
     entities?: { type: string }[];
@@ -121,6 +124,11 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
       await bot.sendMessage(chatId, todayStatusText(today, activities, entries, !!user.strict_mode), kb);
     } else if (cmd === '/app') {
       await bot.sendMessage(chatId, 'Открыть трекер 👇', kb);
+    } else if (cmd === '/task') {
+      const arg = text.split(/\s+/)[1]?.toLowerCase() as TaskKind | undefined;
+      const kinds: TaskKind[] = ['writing2', 'speaking', 'reading', 'vocab', 'writing1', 'listening', 'grammar'];
+      const task = arg && kinds.includes(arg) ? randomTask(arg) : taskForDay(user.tg_id, today, weekdayMon0(today), Math.floor(diffDays('2026-01-05', today) / 7));
+      await bot.sendMessage(chatId, formatTask(task, arg ? 'Задание' : 'Задание дня'), taskKeyboard(task.id));
     } else if (cmd === '/help') {
       await bot.sendMessage(chatId, helpText(), kb);
     } else if (cmd === '/partner') {
@@ -140,6 +148,9 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
       // Largest photo size is last.
       const fileId = msg.photo[msg.photo.length - 1].file_id;
       await startProof(user, { type: 'photo', file_id: fileId, text: msg.caption?.trim() || null }, chatId, bot, repo, today);
+    } else if (msg.voice || msg.video_note) {
+      const v = (msg.voice ?? msg.video_note)!;
+      await startProof(user, { type: 'chat', file_id: v.file_id, text: `🎤 Голосовое ${v.duration} с${msg.caption ? ` — ${msg.caption.trim()}` : ''}` }, chatId, bot, repo, today);
     } else if (msg.document?.mime_type?.startsWith('image/')) {
       await startProof(user, { type: 'photo', file_id: msg.document.file_id, text: msg.caption?.trim() || null }, chatId, bot, repo, today);
     } else if (text && !text.startsWith('/') && (CHAT_LINK_RE.test(text) || text.length >= CHAT_MIN_CHARS || msg.forward_origin || msg.forward_from)) {
@@ -147,7 +158,7 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
     } else {
       await bot.sendMessage(
         chatId,
-        'Открой трекер кнопкой ниже 👇\n\nЧтобы подтвердить занятие — пришли фото, перешли диалог с ИИ или ссылку на него.',
+        'Открой трекер кнопкой ниже 👇\n\nЧтобы подтвердить занятие — пришли фото, голосовое, перешли диалог с ИИ или ссылку на него. Задание по IELTS — /task.',
         kb,
       );
     }
@@ -203,6 +214,14 @@ async function handleCallback(cq: NonNullable<Update['callback_query']>, bot: Bo
     return;
   }
   const [kind, ...rest] = data.split(':');
+
+  if (kind === 'task') {
+    const [k, currentId] = rest;
+    const task = randomTask(k === 'any' ? undefined : (k as TaskKind), currentId);
+    await bot.sendMessage(chatId, formatTask(task, 'Задание'), taskKeyboard(task.id));
+    await bot.answerCallbackQuery(cq.id);
+    return;
+  }
 
   if (kind === 'pfx') {
     await repo.deletePendingProof(Number(rest[0]));

@@ -101,6 +101,8 @@ export const SettingsSchema = z.object({
   ielts_target: z.number().min(4).max(9),
   ielts_exam_date: IsoDate.nullable(),
   ielts_weekly_hours: z.number().min(0).max(80),
+  /** send an IELTS practice task with the morning reminder */
+  ielts_daily_task: z.boolean(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const SettingsPutSchema = SettingsSchema.partial();
@@ -126,6 +128,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ielts_target: 7.0,
   ielts_exam_date: null,
   ielts_weekly_hours: 7,
+  ielts_daily_task: true,
 };
 
 export const MockTestSchema = z.object({
