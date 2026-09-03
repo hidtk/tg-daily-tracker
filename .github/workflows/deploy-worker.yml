@@ -81,6 +81,7 @@ jobs:
           npx wrangler deploy --var BOT_USERNAME:"${{ vars.BOT_USERNAME }}" --var WEBAPP_URL:"$URL" > /dev/null
 
       - name: Set Worker secrets
+        if: ${{ secrets.BOT_TOKEN != '' }}
         working-directory: apps/worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.acct.outputs.id }}
@@ -89,6 +90,7 @@ jobs:
           printf '%s' "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
 
       - name: Configure Telegram bot (webhook, menu button, commands)
+        if: ${{ secrets.BOT_TOKEN != '' }}
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
