@@ -38,9 +38,9 @@ jobs:
         run: |
           ID="${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           if [ -z "$ID" ]; then
-            RESP=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts)
-            echo "$RESP" | jq '{success, errors, accounts: [.result[]? | {id, name}]}'
-            ID=$(echo "$RESP" | jq -r '.result[0].id // empty')
+            RESP=$(curl -s -w '\nHTTP %{http_code}' -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts || true)
+            echo "::warning::accounts API response: $(echo "$RESP" | tr -d '\n' | cut -c1-600)"
+            ID=$(echo "$RESP" | head -1 | jq -r '.result[0].id // empty' 2>/dev/null || true)
           fi
           if [ -z "$ID" ]; then
             echo "::error::Cannot resolve Cloudflare account id. Check CLOUDFLARE_API_TOKEN permissions (needs Account Settings:Read, Workers Scripts:Edit, D1:Edit) or set CLOUDFLARE_ACCOUNT_ID secret."
