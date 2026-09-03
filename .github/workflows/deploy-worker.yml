@@ -68,6 +68,23 @@ jobs:
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$ID/" wrangler.jsonc
           npx wrangler d1 migrations apply tracker-db --remote
 
+      - name: Ensure workers.dev subdomain
+        env:
+          ACCT: ${{ steps.acct.outputs.id }}
+        run: |
+          API="https://api.cloudflare.com/client/v4/accounts/$ACCT/workers/subdomain"
+          H="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          CUR=$(curl -s -H "$H" "$API" | jq -r '.result.subdomain // empty')
+          if [ -n "$CUR" ]; then echo "workers.dev subdomain: $CUR"; exit 0; fi
+          for NAME in "${{ github.repository_owner }}" "${{ github.repository_owner }}-tracker" "${{ github.repository_owner }}-$RANDOM"; do
+            NAME=$(echo "$NAME" | tr 'A-Z' 'a-z')
+            RESP=$(curl -s -X PUT -H "$H" -H 'content-type: application/json' "$API" -d "{\"subdomain\":\"$NAME\"}")
+            if [ "$(echo "$RESP" | jq -r .success)" = "true" ]; then echo "registered workers.dev subdomain: $NAME"; exit 0; fi
+            echo "::warning::subdomain $NAME rejected: $(echo "$RESP" | jq -c .errors)"
+          done
+          echo "::error::Could not register a workers.dev subdomain. Register one in the Cloudflare dashboard (Workers & Pages → Overview) and re-run."
+          exit 1
+
       - name: Deploy Worker
         id: deploy
         working-directory: apps/worker
