@@ -36,6 +36,9 @@ export function App() {
         <div style={{ fontSize: 40 }}>🔒</div>
         <p>{error}</p>
         <p className="muted small">Откройте приложение через кнопку в чате с ботом.</p>
+        <p className="muted small" style={{ opacity: 0.6 }}>
+          {window.Telegram ? `Telegram WebApp ${window.Telegram.WebApp.version} · ${window.Telegram.WebApp.platform}` : 'Telegram SDK не загружен'}
+        </p>
       </div>
     );
   }
