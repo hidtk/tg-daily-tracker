@@ -101,7 +101,7 @@ jobs:
           fi
           URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
           echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "Deployed to $URL"
+          echo "::notice::Deployed to $URL"
           # WEBAPP_URL is needed by cron messages (no request origin there); set it now that we know the URL.
           npx wrangler deploy --var BOT_USERNAME:"${{ vars.BOT_USERNAME }}" --var WEBAPP_URL:"$URL" > /dev/null
 
