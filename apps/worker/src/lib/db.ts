@@ -193,10 +193,12 @@ export class Repo {
   async ensureUser(tgId: number, firstName: string, tz: string): Promise<{ user: UserRow; isNew: boolean }> {
     const existing = await this.getUserByTg(tgId);
     if (existing) {
-      if (existing.first_name !== firstName) {
-        await this.db.prepare('UPDATE users SET first_name = ? WHERE id = ?').bind(firstName, existing.id).run();
-      }
-      return { user: existing, isNew: false };
+      const patch: Record<string, unknown> = {};
+      if (existing.first_name !== firstName) patch.first_name = firstName;
+      // A user created via /start has the default tz; adopt the device tz the first time the Mini App reports one.
+      if (existing.tz === 'UTC' && tz && tz !== 'UTC') patch.tz = tz;
+      if (Object.keys(patch).length) await this.updateUser(existing.id, patch);
+      return { user: { ...existing, ...patch } as UserRow, isNew: false };
     }
     await this.db.prepare('INSERT INTO users (tg_id, first_name, tz) VALUES (?, ?, ?)').bind(tgId, firstName, tz).run();
     const user = (await this.getUserByTg(tgId))!;
