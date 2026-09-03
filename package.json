@@ -1,0 +1,23 @@
+{
+  "name": "tg-daily-tracker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Telegram Mini App: personal daily activity tracker (plan in the morning, log in the evening). Serverless on Cloudflare Workers + D1.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/shared",
+    "apps/web",
+    "apps/worker"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/shared && npm run build -w apps/web",
+    "typecheck": "npm run typecheck -w packages/shared && npm run typecheck -w apps/web && npm run typecheck -w apps/worker",
+    "dev:web": "npm run dev -w apps/web",
+    "dev:worker": "npm run dev -w apps/worker",
+    "deploy": "npm run build && npm run deploy -w apps/worker",
+    "test": "npm run test -w apps/worker"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

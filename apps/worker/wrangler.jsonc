@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tg-daily-tracker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+
+  // Mini App static files are served by the same Worker (no CORS, single domain).
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/bot/*", "/health"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tracker-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "triggers": {
+    // Every 15 minutes: per-user reminders (morning / evening) and weekly summaries, in the user's timezone.
+    "crons": ["*/15 * * * *"]
+  },
+
+  // Non-secret config. Secrets (BOT_TOKEN, SESSION_SECRET) are set with `wrangler secret put`.
+  "vars": {
+    "BOT_USERNAME": "your_bot",
+    // Leave empty to use the Worker's own origin (workers.dev URL).
+    "WEBAPP_URL": ""
+  }
+}
