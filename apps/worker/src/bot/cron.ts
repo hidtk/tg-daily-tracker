@@ -1,9 +1,9 @@
 import { addDays, timeInTz, todayInTz, weekdayMon0 } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, type UserRow } from '../lib/db';
-import { weekStats } from '../lib/stats';
+import { missedOn, weekStats } from '../lib/stats';
 import { Bot } from '../lib/telegram';
-import { eveningText, morningText, weeklyText } from './messages';
+import { eveningText, missedSelfText, missedText, morningText, weeklyText } from './messages';
 import { openAppKeyboard, webappUrl } from './webhook';
 
 /** A reminder is sent if local time is within [target, target + WINDOW_MIN) and not yet sent today. */
@@ -19,11 +19,11 @@ function inWindow(nowHHMM: string, targetHHMM: string): boolean {
   return diff >= 0 && diff < WINDOW_MIN;
 }
 
-export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number }> {
+export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number; missed: number }> {
   const repo = new Repo(env.DB);
   const bot = new Bot(env.BOT_TOKEN);
   const kb = openAppKeyboard(webappUrl(env));
-  const counts = { morning: 0, evening: 0, weekly: 0 };
+  const counts = { morning: 0, evening: 0, weekly: 0, missed: 0 };
   const users = await repo.allUsers();
 
   for (const u of users) {
@@ -31,6 +31,10 @@ export async function runCron(env: Env, now = new Date()): Promise<{ morning: nu
       const today = todayInTz(u.tz, now);
       const time = timeInTz(u.tz, now);
 
+      // Missed-day report (yesterday) goes out with the morning reminder window.
+      if (u.last_partner_report !== today && inWindow(time, u.morning_time)) {
+        if (await sendMissed(repo, bot, u, today, kb)) counts.missed++;
+      }
       if (u.last_morning_sent !== today && inWindow(time, u.morning_time)) {
         if (await sendMorning(repo, bot, u, today, kb)) counts.morning++;
       }
@@ -61,9 +65,11 @@ async function sendMorning(repo: Repo, bot: Bot, u: UserRow, today: string, kb: 
 async function sendEvening(repo: Repo, bot: Bot, u: UserRow, today: string, kb: Kb): Promise<boolean> {
   await repo.markSent(u.id, 'last_evening_sent', today);
   const entries = await repo.entriesForDate(u.id, today);
-  if (entries.some((e) => e.done)) return false; // fact already filled
+  const strict = !!u.strict_mode;
+  // Skip only if every scheduled activity already counts as done.
   const activities = await repo.listActivities(u.id);
-  await bot.sendMessage(u.tg_id, eveningText(today, activities, entries), kb);
+  if (missedOn(activities, entries, today, strict).length === 0) return false;
+  await bot.sendMessage(u.tg_id, eveningText(today, activities, entries, strict), kb);
   return true;
 }
 
@@ -71,8 +77,26 @@ async function sendWeekly(repo: Repo, bot: Bot, u: UserRow, today: string, kb: K
   await repo.markSent(u.id, 'last_weekly_sent', today);
   const activities = await repo.listActivities(u.id);
   if (!activities.length) return false;
-  const cur = await weekStats(repo, u.id, activities, today);
-  const prev = await weekStats(repo, u.id, activities, addDays(cur.from, -1));
-  await bot.sendMessage(u.tg_id, weeklyText(cur, prev), kb);
+  const strict = !!u.strict_mode;
+  const cur = await weekStats(repo, u.id, activities, today, strict);
+  const prev = await weekStats(repo, u.id, activities, addDays(cur.from, -1), strict);
+  await bot.sendMessage(u.tg_id, weeklyText(cur, prev, strict), kb);
+  if (u.partner_chat_id) await bot.sendMessage(u.partner_chat_id, weeklyText(cur, prev, strict, u.first_name));
+  return true;
+}
+
+async function sendMissed(repo: Repo, bot: Bot, u: UserRow, today: string, kb: Kb): Promise<boolean> {
+  await repo.markSent(u.id, 'last_partner_report', today);
+  const yesterday = addDays(today, -1);
+  // Don't report days before the user existed.
+  if (u.created_at.slice(0, 10) > yesterday) return false;
+  const activities = await repo.listActivities(u.id);
+  const entries = await repo.entriesForDate(u.id, yesterday);
+  const strict = !!u.strict_mode;
+  const missed = missedOn(activities, entries, yesterday, strict);
+  if (!missed.length) return false;
+  const partnerNotified = !!(u.partner_chat_id && u.partner_notify_missed);
+  if (partnerNotified) await bot.sendMessage(u.partner_chat_id!, missedText(u.first_name, yesterday, missed, strict));
+  await bot.sendMessage(u.tg_id, missedSelfText(yesterday, missed, partnerNotified ? u.partner_name : null), kb);
   return true;
 }

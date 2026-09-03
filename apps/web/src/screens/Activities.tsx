@@ -4,7 +4,7 @@ import { NAME_MAX, diffDays, todayInTz } from '@tracker/shared';
 import { api, ApiError } from '../api';
 import { deviceTz, haptic, tg } from '../tg';
 import { useToast } from '../components/Toast';
-import { Field, Segmented, Sheet, WD_RU } from '../components/ui';
+import { Field, Segmented, Sheet, Toggle, WD_RU } from '../components/ui';
 
 const COLORS = ['#3b82f6', '#a855f7', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#64748b'];
 const EMOJIS = ['🇬🇧', '🎓', '🏋️', '📚', '💻', '🏃', '🧘', '🎸', '✍️', '🧠', '💧', '🥗', '😴', '🎨', '🗣️', '✅'];
@@ -140,6 +140,7 @@ function ActivityForm({ initial, onClose, onSaved, onArchive }: { initial: Activ
   const [days, setDays] = useState<number[]>(initial?.schedule_days ?? [0, 1, 2, 3, 4]);
   const [goalText, setGoalText] = useState(initial?.goal_text ?? '');
   const [goalDate, setGoalDate] = useState(initial?.goal_date ?? '');
+  const [ielts, setIelts] = useState(initial?.kind === 'ielts');
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
@@ -156,6 +157,7 @@ function ActivityForm({ initial, onClose, onSaved, onArchive }: { initial: Activ
         anchor_date: type === 'every_other_day' ? (initial?.anchor_date ?? todayInTz(deviceTz())) : null,
         goal_text: goalText.trim() || null,
         goal_date: goalDate || null,
+        kind: ielts ? 'ielts' : 'generic',
       };
       if (initial) await api.updateActivity(initial.id, input);
       else await api.createActivity(input);
@@ -206,6 +208,9 @@ function ActivityForm({ initial, onClose, onSaved, onArchive }: { initial: Activ
       <Field label="Дата цели">
         <input className="input" type="date" value={goalDate} onChange={(e) => setGoalDate(e.target.value)} />
       </Field>
+      <div style={{ marginBottom: 12 }}>
+        <Toggle label="Это подготовка к IELTS" sub="Учитывать навыки (L/R/W/S) и минуты на вкладке IELTS" on={ielts} onChange={setIelts} />
+      </div>
       <button className="btn" disabled={busy} onClick={submit}>{initial ? 'Сохранить' : 'Добавить'}</button>
       {onArchive && (
         <button className="btn danger" style={{ marginTop: 8 }} onClick={onArchive}>В архив</button>

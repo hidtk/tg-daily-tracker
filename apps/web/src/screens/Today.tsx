@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Activity, Entry, TodayResponse } from '@tracker/shared';
-import { NOTE_MAX, addDays, diffDays, isEditable } from '@tracker/shared';
-import { api, ApiError } from '../api';
+import type { Activity, Entry, Skill, TodayResponse } from '@tracker/shared';
+import { MINUTE_PRESETS, NOTE_MAX, SKILLS, SKILL_LABEL, addDays, diffDays, isConfirmed, isEditable } from '@tracker/shared';
+import { api, ApiError, proofImageUrl } from '../api';
 import { haptic, tg, inTelegram } from '../tg';
 import { useToast } from '../components/Toast';
 import { fmtDate } from '../components/ui';
 
-type Draft = Record<number, Omit<Entry, 'updated_at'>>; // by activity_id
+type DraftEntry = Omit<Entry, 'updated_at'>;
+type Draft = Record<number, DraftEntry>; // by activity_id
 
 const draftKey = (date: string) => `draft:${date}`;
 
-function emptyEntry(activity_id: number, date: string): Omit<Entry, 'updated_at'> {
-  return { activity_id, date, planned: false, plan_note: null, done: false, done_note: null };
+function emptyEntry(activity_id: number, date: string): DraftEntry {
+  return { activity_id, date, planned: false, plan_note: null, done: false, done_note: null, minutes: 0, skills: null, proofs: [] };
 }
 
 function loadDraft(date: string): Draft | null {
@@ -23,7 +24,7 @@ function loadDraft(date: string): Draft | null {
   }
 }
 
-export function Today({ isNew }: { isNew: boolean }) {
+export function Today({ isNew, botUsername }: { isNew: boolean; botUsername: string }) {
   const toast = useToast();
   const [date, setDate] = useState<string | undefined>(undefined);
   const [data, setData] = useState<TodayResponse | null>(null);
@@ -44,7 +45,10 @@ export function Today({ isNew }: { isNew: boolean }) {
       for (const e of r.entries) base[e.activity_id] = { ...e };
       const saved = loadDraft(r.date);
       if (saved && r.editable) {
-        Object.assign(base, saved);
+        for (const [k, v] of Object.entries(saved)) {
+          const id = Number(k);
+          base[id] = { ...v, proofs: base[id]?.proofs ?? [] };
+        }
         setDirty(true);
         toast('Восстановлен черновик');
       } else {
@@ -81,7 +85,7 @@ export function Today({ isNew }: { isNew: boolean }) {
     if (!data || saving) return;
     setSaving(true);
     try {
-      const entries = Object.values(draftRef.current).map((e) => ({
+      const entries = Object.values(draftRef.current).map(({ proofs: _p, ...e }) => ({
         ...e,
         plan_note: e.plan_note?.trim() || null,
         done_note: e.done_note?.trim() || null,
@@ -137,7 +141,18 @@ export function Today({ isNew }: { isNew: boolean }) {
   const canBack = isEditable(addDays(cur, -1), today, 60); // browse history up to 60 days
   const canFwd = diffDays(cur, today) > 0;
   const touchedOthers = others.filter((a) => draft[a.id]?.done || draft[a.id]?.planned);
-  const doneCount = scheduled.filter((a) => draft[a.id]?.done).length;
+  const strict = data.strict_mode;
+  const counted = (e?: DraftEntry) => !!e && (strict ? isConfirmed(e) : e.done);
+  const doneCount = scheduled.filter((a) => counted(draft[a.id])).length;
+  const unconfirmed = scheduled.filter((a) => draft[a.id]?.done && !isConfirmed(draft[a.id])).length;
+  const openBot = () => {
+    haptic.tap();
+    try {
+      tg.openTelegramLink(`https://t.me/${botUsername}`);
+    } catch {
+      window.open(`https://t.me/${botUsername}`, '_blank');
+    }
+  };
 
   return (
     <div className="screen">
@@ -166,13 +181,16 @@ export function Today({ isNew }: { isNew: boolean }) {
       )}
 
       {scheduled.length > 0 && (
-        <div className="row" style={{ margin: '0 4px 8px' }}>
-          <span className="muted small">Сделано {doneCount} из {scheduled.length}</span>
+        <div className="row" style={{ margin: '0 4px 8px', justifyContent: 'space-between' }}>
+          <span className="muted small">{strict ? 'Засчитано' : 'Сделано'} {doneCount} из {scheduled.length}</span>
+          {strict && unconfirmed > 0 && data.editable && (
+            <button className="btn ghost small" style={{ padding: 0 }} onClick={openBot}>📷 Подтвердить {unconfirmed} →</button>
+          )}
         </div>
       )}
 
       {scheduled.map((a) => (
-        <ActivityCard key={a.id} a={a} e={draft[a.id]} date={cur} editable={data.editable} onChange={(p) => update(a.id, p)} />
+        <ActivityCard key={a.id} a={a} e={draft[a.id]} date={cur} editable={data.editable} strict={strict} onChange={(p) => update(a.id, p)} onOpenBot={openBot} />
       ))}
 
       {others.length > 0 && (
@@ -181,7 +199,7 @@ export function Today({ isNew }: { isNew: boolean }) {
             {showOthers ? 'Скрыть' : 'Показать'} вне расписания ({others.length}){touchedOthers.length && !showOthers ? ` · отмечено ${touchedOthers.length}` : ''}
           </button>
           {showOthers && others.map((a) => (
-            <ActivityCard key={a.id} a={a} e={draft[a.id]} date={cur} editable={data.editable} onChange={(p) => update(a.id, p)} offSchedule />
+            <ActivityCard key={a.id} a={a} e={draft[a.id]} date={cur} editable={data.editable} strict={strict} onChange={(p) => update(a.id, p)} onOpenBot={openBot} offSchedule />
           ))}
         </>
       )}
@@ -195,33 +213,52 @@ export function Today({ isNew }: { isNew: boolean }) {
   );
 }
 
-function statusOf(e?: Omit<Entry, 'updated_at'>): { text: string; cls: string } | null {
+function statusOf(e: DraftEntry | undefined, strict: boolean): { text: string; cls: string } | null {
   if (!e) return null;
-  if (e.planned && e.done) return { text: 'План ✓ · Факт ✓', cls: 'good' };
+  const confirmed = isConfirmed(e);
+  if (e.done && strict && !confirmed) return { text: 'Отмечено, но не подтверждено — не идёт в стрик', cls: 'warn' };
+  if (e.planned && e.done) return { text: confirmed ? 'План ✓ · Факт ✓ · Подтверждено' : 'План ✓ · Факт ✓', cls: 'good' };
   if (e.planned && !e.done) return { text: 'Запланировано, ещё не отмечено', cls: '' };
-  if (!e.planned && e.done) return { text: 'Не планировал, но сделал', cls: 'bonus' };
+  if (!e.planned && e.done) return { text: confirmed ? 'Не планировал, но сделал · Подтверждено' : 'Не планировал, но сделал', cls: 'bonus' };
   return null;
 }
 
 function ActivityCard({
-  a, e, date, editable, onChange, offSchedule,
+  a, e, date, editable, strict, onChange, onOpenBot, offSchedule,
 }: {
   a: Activity;
-  e?: Omit<Entry, 'updated_at'>;
+  e?: DraftEntry;
   date: string;
   editable: boolean;
+  strict: boolean;
   onChange: (p: Partial<Entry>) => void;
+  onOpenBot: () => void;
   offSchedule?: boolean;
 }) {
-  const st = statusOf(e);
+  const st = statusOf(e, strict);
   const daysLeft = a.goal_date ? diffDays(date, a.goal_date) : null;
+  const proofs = e?.proofs ?? [];
+  const photos = proofs.filter((p) => p.type === 'photo');
+  const chats = proofs.filter((p) => p.type === 'chat');
+  const [showProofs, setShowProofs] = useState(false);
+  const toggleSkill = (sk: Skill) => {
+    const cur = e?.skills ?? [];
+    onChange({ skills: cur.includes(sk) ? cur.filter((x) => x !== sk) : [...cur, sk] });
+  };
   return (
     <div className="card act" style={{ ['--act-color' as string]: a.color, opacity: offSchedule ? 0.85 : 1 }}>
       <div className="emoji">{a.emoji}</div>
       <div className="grow">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <div className="name">{a.name}</div>
-          {offSchedule && <span className="chip">вне расписания</span>}
+          <div className="row" style={{ gap: 6 }}>
+            {proofs.length > 0 && (
+              <button type="button" className="chip proof" onClick={() => setShowProofs((v) => !v)}>
+                {photos.length > 0 && `📷 ${photos.length}`}{photos.length > 0 && chats.length > 0 && ' · '}{chats.length > 0 && `💬 ${chats.length}`}
+              </button>
+            )}
+            {offSchedule && <span className="chip">вне расписания</span>}
+          </div>
         </div>
         {a.goal_text && (
           <div className="goal">
@@ -241,11 +278,11 @@ function ActivityCard({
           </button>
           <button
             type="button"
-            className={`mark done ${e?.done ? 'on' : ''}`}
+            className={`mark done ${e?.done ? 'on' : ''} ${e?.done && strict && !isConfirmed(e) ? 'unconfirmed' : ''}`}
             disabled={!editable}
             onClick={() => { e?.done ? haptic.tap() : haptic.success(); onChange({ done: !e?.done }); }}
           >
-            <span className="box">{e?.done ? '✓' : ''}</span>
+            <span className="box">{e?.done ? (strict && !isConfirmed(e) ? '·' : '✓') : ''}</span>
             <span className="lbl">Сделано</span>
           </button>
         </div>
@@ -260,6 +297,24 @@ function ActivityCard({
             onChange={(ev) => onChange({ plan_note: ev.target.value })}
           />
         )}
+        {e?.done && (
+          <>
+            <div className="chips" style={{ marginTop: 8 }}>
+              {MINUTE_PRESETS.map((m) => (
+                <button key={m} type="button" className={`chip sel ${e.minutes === m ? 'on' : ''}`} disabled={!editable}
+                  onClick={() => { haptic.select(); onChange({ minutes: e.minutes === m ? 0 : m }); }}>{m}м</button>
+              ))}
+            </div>
+            {a.kind === 'ielts' && (
+              <div className="chips" style={{ marginTop: 6 }}>
+                {SKILLS.map((sk) => (
+                  <button key={sk} type="button" className={`chip sel ${e.skills?.includes(sk) ? 'on' : ''}`} disabled={!editable}
+                    onClick={() => { haptic.select(); toggleSkill(sk); }}>{SKILL_LABEL[sk]}</button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
         {(e?.done || e?.done_note) && (
           <textarea
             className="note"
@@ -272,6 +327,19 @@ function ActivityCard({
           />
         )}
         {st && <div className={`status ${st.cls}`}>{st.text}</div>}
+        {e?.done && strict && !isConfirmed(e) && editable && (
+          <button type="button" className="btn secondary sm" style={{ marginTop: 8 }} onClick={onOpenBot}>📷 Отправить подтверждение боту</button>
+        )}
+        {showProofs && proofs.length > 0 && (
+          <div className="proofs">
+            {photos.map((p) => (
+              <img key={p.id} src={proofImageUrl(p.id)} alt="proof" loading="lazy" />
+            ))}
+            {chats.map((p) => (
+              <div key={p.id} className="proof-text">💬 {p.text?.slice(0, 160)}{(p.text?.length ?? 0) > 160 ? '…' : ''}</div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

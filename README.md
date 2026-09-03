@@ -4,7 +4,7 @@
 
 | Слой | Технология |
 |---|---|
-| Mini App | Vite + React + TypeScript, `@twa-dev/sdk` |
+| Mini App | Vite + React + TypeScript, официальный `telegram-web-app.js` |
 | Backend + бот + cron | Cloudflare Workers (статика Mini App раздаётся тем же Worker'ом) |
 | База | Cloudflare D1 (SQLite) |
 | CI/CD | GitHub Actions → `wrangler deploy` по push в `main` |
@@ -19,6 +19,9 @@
 - Стрики по каждой активности (только по дням из расписания — пропуск нерасписанного дня стрик не ломает), heatmap по месяцу, просмотр заметок по дню.
 - Напоминания утром и вечером в таймзоне пользователя; не приходят, если план/факт уже заполнен.
 - Недельная сводка в воскресенье: «выполнено X из Y» по активностям, лучшая активность, сравнение с прошлой неделей.
+- **Подтверждения**: фото или пересланный диалог с ИИ (ссылка/текст), отправленный боту, привязывается к активности; в строгом режиме только подтверждённые занятия идут в стрики и статистику.
+- **Партнёр по ответственности**: `/partner` → ссылка для друга или код для группы; ему уходят недельные итоги и уведомления о пропущенных днях.
+- **IELTS**: цель и дата экзамена (меняется не чаще раза в день), минуты по навыкам, пробные тесты с band по секциям, графики тренда к цели, часов по неделям и дисциплины.
 - Экспорт всех данных в JSON.
 - Заложен интерфейс AI-модуля (endpoint + key в настройках; вызовов в v1 нет).
 
@@ -98,6 +101,10 @@ DELETE /api/activities/:id   = архивировать
 GET  /api/stats?month=YYYY-MM  стрики + heatmap
 GET  /api/settings, PUT /api/settings
 GET  /api/export             JSON (Bearer или ?token=)
+GET  /api/ielts              статистика IELTS (недели, пробные тесты, дисциплина)
+POST /api/mocks, DELETE /api/mocks/:id
+GET  /api/proofs/:id/image   фото-подтверждение (прокси к Telegram)
+DELETE /api/proofs/:id, DELETE /api/partner
 POST /bot/webhook            Telegram updates (проверяется secret_token)
 cron */15 * * * *            напоминания и недельные сводки по tz пользователей
 ```
@@ -109,8 +116,11 @@ users(id, tg_id, first_name, tz, morning_time, evening_time, weekly_summary, wee
       ai_endpoint, ai_key, last_morning_sent, last_evening_sent, last_weekly_sent, created_at)
 activities(id, user_id, name, emoji, color, schedule_type, schedule_days, anchor_date,
            goal_text, goal_date, sort, archived_at)
-entries(id, user_id, activity_id, date, planned, plan_note, done, done_note, updated_at)
+entries(id, user_id, activity_id, date, planned, plan_note, done, done_note, minutes, skills, updated_at)
   unique(activity_id, date)
+proofs(id, user_id, activity_id, date, type photo|chat, file_id, text)
+mock_tests(id, user_id, date, listening, reading, writing, speaking, overall, note)
+users +: strict_mode, partner_chat_id, partner_name, partner_code, ielts_target, ielts_exam_date, ielts_weekly_hours
 ```
 
 ## Лицензия

@@ -6,13 +6,15 @@ import { Today } from './screens/Today';
 import { Calendar } from './screens/Calendar';
 import { Activities } from './screens/Activities';
 import { SettingsScreen } from './screens/Settings';
+import { Ielts } from './screens/Ielts';
 import { ToastProvider } from './components/Toast';
 
-type Tab = 'today' | 'calendar' | 'activities' | 'settings';
+type Tab = 'today' | 'calendar' | 'ielts' | 'activities' | 'settings';
 
 const TABS: { id: Tab; label: string; ico: string }[] = [
   { id: 'today', label: 'Сегодня', ico: '☀️' },
   { id: 'calendar', label: 'Календарь', ico: '📅' },
+  { id: 'ielts', label: 'IELTS', ico: '📈' },
   { id: 'activities', label: 'Активности', ico: '🎯' },
   { id: 'settings', label: 'Настройки', ico: '⚙️' },
 ];
@@ -46,8 +48,9 @@ export function App() {
 
   return (
     <ToastProvider>
-      {tab === 'today' && <Today key={version} isNew={session.user.is_new} />}
+      {tab === 'today' && <Today key={version} isNew={session.user.is_new} botUsername={session.settings.bot_username} />}
       {tab === 'calendar' && <Calendar />}
+      {tab === 'ielts' && <Ielts />}
       {tab === 'activities' && <Activities onChanged={() => setVersion((v) => v + 1)} />}
       {tab === 'settings' && <SettingsScreen initial={session.settings} />}
       <nav className="nav">

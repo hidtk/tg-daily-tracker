@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Settings } from '@tracker/shared';
+import type { Settings, SettingsView } from '@tracker/shared';
 import { api, ApiError, exportUrl } from '../api';
 import { deviceTz, haptic, inTelegram, tg } from '../tg';
 import { useToast } from '../components/Toast';
@@ -11,9 +11,9 @@ const TZ_LIST = [
   'Europe/Istanbul', 'Europe/Berlin', 'Europe/London', 'Asia/Dubai', 'Asia/Bangkok', 'America/New_York', 'UTC',
 ];
 
-export function SettingsScreen({ initial }: { initial: Settings }) {
+export function SettingsScreen({ initial }: { initial: SettingsView }) {
   const toast = useToast();
-  const [s, setS] = useState<Settings>(initial);
+  const [s, setS] = useState<SettingsView>(initial);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showAi, setShowAi] = useState(Boolean(initial.ai_endpoint));
@@ -28,7 +28,8 @@ export function SettingsScreen({ initial }: { initial: Settings }) {
   const save = async () => {
     setBusy(true);
     try {
-      const r = await api.saveSettings(s);
+      const { partner: _p, deadline_editable: _d, bot_username: _b, ...plain } = s;
+      const r = await api.saveSettings(plain);
       setS(r);
       setDirty(false);
       haptic.success();
@@ -78,6 +79,31 @@ export function SettingsScreen({ initial }: { initial: Settings }) {
           )}
         </Field>
         <div className="small muted">Напоминание не приходит, если план (утром) или факт (вечером) уже заполнены.</div>
+      </div>
+
+      <div className="section-title">Подтверждения</div>
+      <div className="card">
+        <Toggle label="Строгий режим" sub="Без фото или чата с ИИ занятие не идёт в стрик и статистику" on={s.strict_mode} onChange={(v) => patch({ strict_mode: v })} />
+        <div className="small muted" style={{ marginTop: 8 }}>Подтверждение — это фото или пересланный диалог с ИИ, отправленный боту. Он спросит, к какой активности привязать.</div>
+      </div>
+
+      <div className="section-title">Партнёр по ответственности</div>
+      <div className="card">
+        {s.partner ? (
+          <>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div>🤝 <b>{s.partner.name}</b></div>
+              <button className="btn sm danger" onClick={async () => { await api.unlinkPartner(); haptic.success(); setS((x) => ({ ...x, partner: null })); toast('Партнёр отвязан'); }}>Отвязать</button>
+            </div>
+            <Toggle label="Сообщать о пропусках" sub="Утром, если вчера что-то не засчитано" on={s.partner_notify_missed} onChange={(v) => patch({ partner_notify_missed: v })} />
+            <div className="small muted">Недельные итоги по воскресеньям уходят партнёру всегда, пока он привязан.</div>
+          </>
+        ) : (
+          <>
+            <div className="small" style={{ marginBottom: 8 }}>Человек или группа, кому бот будет присылать твои итоги недели и пропуски. Социальное давление работает лучше любых напоминаний.</div>
+            <button className="btn secondary" onClick={() => { haptic.tap(); try { tg.openTelegramLink(`https://t.me/${s.bot_username}`); } catch { /* noop */ } }}>Получить ссылку: /partner в боте</button>
+          </>
+        )}
       </div>
 
       <div className="section-title">Недельная сводка</div>
