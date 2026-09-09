@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { minutesForBand, READING_TIME_LIMIT_MIN } from './reading';
 
 // ---------- Constants ----------
 
@@ -387,3 +388,134 @@ export const TEMPLATE_ACTIVITIES: ActivityInput[] = [
   { name: 'Диплом', emoji: '🎓', color: '#a855f7', schedule_type: 'daily', goal_text: 'Защита диплома', goal_date: null },
   { name: 'Спорт', emoji: '🏋️', color: '#22c55e', schedule_type: 'every_other_day', goal_text: null, goal_date: null },
 ];
+
+// ---------- Social-media minutes wallet ----------
+
+export * from './reading';
+
+/** Apps that can be gated by the wallet. */
+export const GateApp = z.enum(['instagram', 'tiktok', 'youtube', 'vk', 'other']);
+export type GateApp = z.infer<typeof GateApp>;
+
+export const GATE_APP_LABEL: Record<GateApp, string> = {
+  instagram: 'Instagram',
+  tiktok: 'TikTok',
+  youtube: 'YouTube / Shorts',
+  vk: 'VK',
+  other: 'Другое',
+};
+
+/** Unspent minutes carry over, but the bank is capped. */
+export const WALLET_BANK_CAP_DEFAULT = 120;
+/** Cap on minutes earned in one day. */
+export const WALLET_DAILY_EARN_CAP_DEFAULT = 60;
+/** If the app never reports a close event, a session is force-closed after this. */
+export const WALLET_SESSION_MAX_MIN = 45;
+
+export const WalletSettingsSchema = z.object({
+  wallet_enabled: z.boolean(),
+  bank_cap: z.number().int().min(0).max(600),
+  daily_earn_cap: z.number().int().min(0).max(600),
+  apps: z.array(GateApp).max(8),
+});
+export type WalletSettings = z.infer<typeof WalletSettingsSchema>;
+export const WalletSettingsPutSchema = WalletSettingsSchema.partial();
+
+export const DEFAULT_WALLET_SETTINGS: WalletSettings = {
+  wallet_enabled: true,
+  bank_cap: WALLET_BANK_CAP_DEFAULT,
+  daily_earn_cap: WALLET_DAILY_EARN_CAP_DEFAULT,
+  apps: ['instagram', 'tiktok', 'youtube', 'vk'],
+};
+
+export interface WalletLedgerEntry {
+  id: number;
+  at: string; // ISO datetime
+  delta: number; // + earned, − spent
+  reason: 'reading' | 'spend' | 'expire' | 'manual';
+  note: string | null;
+}
+
+export interface ReadingAttemptView {
+  id: number;
+  test_id: string;
+  date: string;
+  correct: number;
+  total: number;
+  band: number;
+  seconds: number;
+  earned: number;
+  /** first completion of this test — repeats do not earn */
+  first: boolean;
+}
+
+export interface WalletSession {
+  id: number;
+  app: GateApp;
+  started_at: string;
+  ended_at: string | null;
+  minutes: number;
+}
+
+export interface WalletResponse extends WalletSettings {
+  balance: number;
+  earned_today: number;
+  /** how much can still be earned today */
+  earn_left: number;
+  api_key: string;
+  gate_url: string;
+  attempts: ReadingAttemptView[];
+  ledger: WalletLedgerEntry[];
+  sessions: WalletSession[];
+  /** ids of tests already completed for reward */
+  done_test_ids: string[];
+}
+
+export const ReadingSubmitSchema = z.object({
+  test_id: z.string().min(1).max(32),
+  seconds: z.number().int().min(0).max(24 * 3600),
+  answers: z.array(z.string().max(60)),
+});
+export type ReadingSubmit = z.infer<typeof ReadingSubmitSchema>;
+
+export interface ReadingResult {
+  correct: number;
+  total: number;
+  band: number;
+  earned: number;
+  /** reward before penalties/caps */
+  base: number;
+  halved: boolean;
+  capped: boolean;
+  repeat: boolean;
+  balance: number;
+  wrong: { n: number; given: string; answer: string; explain: string }[];
+}
+
+/**
+ * Minutes actually credited for an attempt.
+ * Over the time limit the reward is halved; a repeat of an already-rewarded test earns nothing;
+ * the daily cap and the bank cap clamp the rest.
+ */
+export function creditForAttempt(opts: {
+  band: number;
+  seconds: number;
+  repeat: boolean;
+  earnedToday: number;
+  balance: number;
+  dailyCap: number;
+  bankCap: number;
+  limitMin?: number;
+}): { base: number; earned: number; halved: boolean; capped: boolean } {
+  const base = minutesForBand(opts.band);
+  if (opts.repeat) return { base, earned: 0, halved: false, capped: false };
+  const limit = opts.limitMin ?? READING_TIME_LIMIT_MIN;
+  const halved = opts.seconds > limit * 60;
+  let earned = halved ? Math.floor(base / 2) : base;
+  const byDaily = Math.max(0, opts.dailyCap - opts.earnedToday);
+  const byBank = Math.max(0, opts.bankCap - opts.balance);
+  const allowed = Math.min(byDaily, byBank);
+  const capped = earned > allowed;
+  earned = Math.min(earned, allowed);
+  return { base, earned, halved, capped };
+}

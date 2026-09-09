@@ -1,6 +1,6 @@
-import { MINUTE_PRESETS, addDays, diffDays, isConfirmed, isScheduledOn, todayInTz, weekdayMon0 } from '@tracker/shared';
+import { GATE_APP_LABEL, MINUTE_PRESETS, addDays, diffDays, isConfirmed, isScheduledOn, todayInTz, weekdayMon0 } from '@tracker/shared';
 import type { Env } from '../env';
-import { Repo, type UserRow } from '../lib/db';
+import { Repo, walletSettings, type UserRow } from '../lib/db';
 import { Bot, escapeHtml, type InlineKeyboardButton } from '../lib/telegram';
 import { helpText, partnerLinkedText, partnerText, todayStatusText, welcomeText } from './messages';
 import { formatTask, randomTask, taskForDay, taskKeyboard, type TaskKind } from './ielts-tasks';
@@ -138,6 +138,20 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
         const task = taskForDay(user.tg_id, today, weekdayMon0(today), weekIndex);
         await bot.sendMessage(chatId, t, [...keyboard, ...taskKeyboard(task.id)]);
       }
+    } else if (cmd === '/minutes' || cmd === '/min') {
+      const bal = await repo.balance(user.id);
+      const w = walletSettings(user);
+      const earned = await repo.earnedOn(user.id, today);
+      await bot.sendMessage(
+        chatId,
+        [
+          `⏳ <b>${Math.floor(bal)} мин</b> в кошельке.`,
+          bal < 1 ? 'Соцсети закрыты — пройди Reading-тест в приложении.' : `Открыты: ${w.apps.map((a) => GATE_APP_LABEL[a]).join(', ')}.`,
+          '',
+          `Сегодня заработано ${earned} из ${w.daily_earn_cap} мин.`,
+        ].join('\n'),
+        kb,
+      );
     } else if (cmd === '/hw') {
       const rest = text.slice(3).trim();
       const hws = await repo.openHomeworks(user.id);

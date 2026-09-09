@@ -24,6 +24,7 @@ export function helpText(): string {
     '/today — статус за сегодня',
     '/task — задание дня по IELTS (/task writing2 · speaking · reading · vocab · writing1 · listening · grammar)',
     '/hw — домашка: список; /hw текст — добавить (или фото с подписью «дз»); /hw done N — сделал',
+    '/minutes — сколько минут соцсетей в кошельке',
     '/partner — партнёр по ответственности (ссылка для друга или код для группы)',
     '/partner off — отвязать партнёра',
     '/help — эта справка',

@@ -1,5 +1,5 @@
-import type { Activity, ActivityInput, Entry, Homework, Lesson, LessonInput, MockTest, Proof, Settings, Skill } from '@tracker/shared';
-import { TEMPLATE_ACTIVITIES } from '@tracker/shared';
+import type { Activity, ActivityInput, Entry, Homework, Lesson, LessonInput, MockTest, Proof, ReadingAttemptView, Settings, Skill, WalletLedgerEntry, WalletSession, WalletSettings } from '@tracker/shared';
+import { DEFAULT_WALLET_SETTINGS, GateApp, TEMPLATE_ACTIVITIES } from '@tracker/shared';
 
 export interface UserRow {
   id: number;
@@ -28,6 +28,12 @@ export interface UserRow {
   ielts_weekly_hours: number;
   ielts_daily_task: number;
   last_task_sent: string | null;
+  wallet_enabled: number;
+  sm_balance: number;
+  sm_bank_cap: number;
+  sm_daily_cap: number;
+  sm_apps: string | null;
+  sm_api_key: string | null;
 }
 
 interface ActivityRow extends Omit<Activity, 'schedule_days'> {
@@ -170,6 +176,20 @@ export function userSettings(u: UserRow): Settings {
     ielts_exam_date: u.ielts_exam_date,
     ielts_weekly_hours: u.ielts_weekly_hours ?? 7,
     ielts_daily_task: (u.ielts_daily_task ?? 1) !== 0,
+  };
+}
+
+export function walletSettings(u: UserRow): WalletSettings {
+  let apps: GateApp[] = DEFAULT_WALLET_SETTINGS.apps;
+  try {
+    const parsed = u.sm_apps ? GateApp.array().safeParse(JSON.parse(u.sm_apps)) : null;
+    if (parsed?.success) apps = parsed.data;
+  } catch { /* keep defaults */ }
+  return {
+    wallet_enabled: (u.wallet_enabled ?? 1) !== 0,
+    bank_cap: u.sm_bank_cap ?? DEFAULT_WALLET_SETTINGS.bank_cap,
+    daily_earn_cap: u.sm_daily_cap ?? DEFAULT_WALLET_SETTINGS.daily_earn_cap,
+    apps,
   };
 }
 
@@ -530,4 +550,123 @@ export class Repo {
   async deleteHomework(userId: number, id: number) {
     await this.db.prepare('DELETE FROM homeworks WHERE user_id = ? AND id = ?').bind(userId, id).run();
   }
+
+  // ---- wallet ----
+
+  /** Stable per-user key for the iOS Shortcuts gate endpoint. */
+  async ensureApiKey(u: UserRow): Promise<string> {
+    if (u.sm_api_key) return u.sm_api_key;
+    const key = randomKey();
+    await this.updateUser(u.id, { sm_api_key: key });
+    return key;
+  }
+
+  getUserByApiKey(key: string) {
+    return this.db.prepare('SELECT * FROM users WHERE sm_api_key = ?').bind(key).first<UserRow>();
+  }
+
+  async balance(userId: number): Promise<number> {
+    const r = await this.db.prepare('SELECT sm_balance AS b FROM users WHERE id = ?').bind(userId).first<{ b: number }>();
+    return r?.b ?? 0;
+  }
+
+  /** Apply a signed change to the balance, clamped to [0, cap], and write a ledger row. */
+  async addMinutes(userId: number, date: string, delta: number, reason: WalletLedgerEntry['reason'], note: string | null, cap: number): Promise<number> {
+    await this.db
+      .prepare('UPDATE users SET sm_balance = MAX(0, MIN(?, sm_balance + ?)) WHERE id = ?')
+      .bind(cap, delta, userId)
+      .run();
+    if (delta !== 0) {
+      await this.db
+        .prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)')
+        .bind(userId, date, delta, reason, note)
+        .run();
+    }
+    return this.balance(userId);
+  }
+
+  async earnedOn(userId: number, date: string): Promise<number> {
+    const r = await this.db
+      .prepare('SELECT COALESCE(SUM(delta), 0) AS s FROM wallet_ledger WHERE user_id = ? AND date = ? AND delta > 0')
+      .bind(userId, date)
+      .first<{ s: number }>();
+    return r?.s ?? 0;
+  }
+
+  async rewardedTestIds(userId: number): Promise<string[]> {
+    const { results } = await this.db
+      .prepare('SELECT DISTINCT test_id FROM reading_attempts WHERE user_id = ? AND earned > 0')
+      .bind(userId)
+      .all<{ test_id: string }>();
+    return results.map((r) => r.test_id);
+  }
+
+  async addAttempt(userId: number, a: Omit<ReadingAttemptView, 'id' | 'first'> ): Promise<number> {
+    const r = await this.db
+      .prepare('INSERT INTO reading_attempts (user_id, test_id, date, correct, total, band, seconds, earned) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(userId, a.test_id, a.date, a.correct, a.total, a.band, a.seconds, a.earned)
+      .run();
+    return Number(r.meta.last_row_id);
+  }
+
+  async attempts(userId: number, limit = 30): Promise<ReadingAttemptView[]> {
+    const { results } = await this.db
+      .prepare('SELECT * FROM reading_attempts WHERE user_id = ? ORDER BY id DESC LIMIT ?')
+      .bind(userId, limit)
+      .all<{ id: number; test_id: string; date: string; correct: number; total: number; band: number; seconds: number; earned: number }>();
+    return results.map((r) => ({ ...r, first: r.earned > 0 }));
+  }
+
+  async ledger(userId: number, limit = 40): Promise<WalletLedgerEntry[]> {
+    const { results } = await this.db
+      .prepare('SELECT id, at, delta, reason, note FROM wallet_ledger WHERE user_id = ? ORDER BY id DESC LIMIT ?')
+      .bind(userId, limit)
+      .all<WalletLedgerEntry>();
+    return results;
+  }
+
+  openSession(userId: number) {
+    return this.db
+      .prepare('SELECT * FROM wallet_sessions WHERE user_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1')
+      .bind(userId)
+      .first<{ id: number; app: string; started_at: string; ended_at: string | null; minutes: number }>();
+  }
+
+  async startSession(userId: number, app: string): Promise<number> {
+    const r = await this.db
+      .prepare(`INSERT INTO wallet_sessions (user_id, app, started_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+      .bind(userId, app)
+      .run();
+    return Number(r.meta.last_row_id);
+  }
+
+  async endSession(id: number, minutes: number) {
+    await this.db
+      .prepare(`UPDATE wallet_sessions SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), minutes = ? WHERE id = ?`)
+      .bind(minutes, id)
+      .run();
+  }
+
+  async sessions(userId: number, limit = 20): Promise<WalletSession[]> {
+    const { results } = await this.db
+      .prepare('SELECT id, app, started_at, ended_at, minutes FROM wallet_sessions WHERE user_id = ? ORDER BY id DESC LIMIT ?')
+      .bind(userId, limit)
+      .all<{ id: number; app: string; started_at: string; ended_at: string | null; minutes: number }>();
+    return results.map((r) => ({ ...r, app: (r.app as WalletSession['app']) }));
+  }
+
+  /** Sessions left open by a missed close event, across all users. */
+  async staleSessions(olderThanMin: number) {
+    const { results } = await this.db
+      .prepare(`SELECT * FROM wallet_sessions WHERE ended_at IS NULL AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)`)
+      .bind(`-${olderThanMin} minutes`)
+      .all<{ id: number; user_id: number; app: string; started_at: string }>();
+    return results;
+  }
+}
+
+function randomKey(): string {
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 }

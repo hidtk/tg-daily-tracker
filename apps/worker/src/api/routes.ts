@@ -13,13 +13,21 @@ import {
   isEditable,
   isScheduledOn,
   todayInTz,
+  READING_TESTS,
+  ReadingSubmitSchema,
+  WalletSettingsPutSchema,
+  bandForTest,
+  creditForAttempt,
+  isCorrect,
+  type ReadingResult,
+  type WalletResponse,
   type AuthResponse,
   type SettingsView,
   type StatsResponse,
   type TodayResponse,
 } from '@tracker/shared';
 import type { Env } from '../env';
-import { Repo, userSettings, type UserRow } from '../lib/db';
+import { Repo, userSettings, walletSettings, type UserRow } from '../lib/db';
 import { HttpError, json, readJson } from '../lib/http';
 import { issueToken, verifyToken } from '../lib/session';
 import { Bot, validateInitData } from '../lib/telegram';
@@ -252,6 +260,71 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     }
   }
 
+  // ---- /api/wallet ----
+  if (path === '/wallet' && (method === 'GET' || method === 'PUT')) {
+    if (method === 'PUT') {
+      const patch = WalletSettingsPutSchema.parse(await readJson(req));
+      await repo.updateUser(user.id, {
+        wallet_enabled: patch.wallet_enabled,
+        sm_bank_cap: patch.bank_cap,
+        sm_daily_cap: patch.daily_earn_cap,
+        sm_apps: patch.apps ? JSON.stringify(patch.apps) : undefined,
+      });
+      Object.assign(user, await repo.getUserById(user.id));
+    }
+    return json(await walletView(repo, user, env, today));
+  }
+
+  // ---- POST /api/reading/submit ----
+  if (path === '/reading/submit' && method === 'POST') {
+    const body = ReadingSubmitSchema.parse(await readJson(req));
+    const test = READING_TESTS.find((t) => t.id === body.test_id);
+    if (!test) throw new HttpError(404, 'Unknown test');
+
+    const wrong: ReadingResult['wrong'] = [];
+    let correct = 0;
+    test.questions.forEach((q, i) => {
+      const given = body.answers[i] ?? '';
+      if (isCorrect(q, given)) correct++;
+      else wrong.push({ n: q.n, given, answer: q.answer, explain: q.explain });
+    });
+
+    const band = bandForTest(correct, test.questions.length);
+    const w = walletSettings(user);
+    const rewarded = await repo.rewardedTestIds(user.id);
+    const earnedToday = await repo.earnedOn(user.id, today);
+    const balance = await repo.balance(user.id);
+    const credit = creditForAttempt({
+      band,
+      seconds: body.seconds,
+      repeat: rewarded.includes(test.id),
+      earnedToday,
+      balance,
+      dailyCap: w.daily_earn_cap,
+      bankCap: w.bank_cap,
+      limitMin: test.minutes + 10,
+    });
+
+    await repo.addAttempt(user.id, { test_id: test.id, date: today, correct, total: test.questions.length, band, seconds: body.seconds, earned: credit.earned });
+    const newBalance = credit.earned
+      ? await repo.addMinutes(user.id, today, credit.earned, 'reading', test.id, w.bank_cap)
+      : balance;
+
+    const res: ReadingResult = {
+      correct,
+      total: test.questions.length,
+      band,
+      earned: credit.earned,
+      base: credit.base,
+      halved: credit.halved,
+      capped: credit.capped,
+      repeat: rewarded.includes(test.id),
+      balance: newBalance,
+      wrong,
+    };
+    return json(res);
+  }
+
   // ---- GET /api/export ----
   if (path === '/export' && method === 'GET') {
     const data = {
@@ -265,4 +338,23 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   }
 
   throw new HttpError(404, 'Not found');
+}
+
+async function walletView(repo: Repo, user: UserRow, env: Env, today: string): Promise<WalletResponse> {
+  const w = walletSettings(user);
+  const key = await repo.ensureApiKey(user);
+  const earnedToday = await repo.earnedOn(user.id, today);
+  const base = (env.WEBAPP_URL || '').replace(/\/+$/, '');
+  return {
+    ...w,
+    balance: Math.round((await repo.balance(user.id)) * 10) / 10,
+    earned_today: earnedToday,
+    earn_left: Math.max(0, w.daily_earn_cap - earnedToday),
+    api_key: key,
+    gate_url: `${base}/gate/${key}`,
+    attempts: await repo.attempts(user.id),
+    ledger: await repo.ledger(user.id),
+    sessions: await repo.sessions(user.id),
+    done_test_ids: await repo.rewardedTestIds(user.id),
+  };
 }

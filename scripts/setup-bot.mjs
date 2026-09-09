@@ -34,6 +34,7 @@ await call('setMyCommands', {
     { command: 'today', description: 'Статус за сегодня' },
     { command: 'task', description: 'Задание по IELTS на сегодня' },
     { command: 'hw', description: 'Домашка: список / добавить / сделал' },
+    { command: 'minutes', description: 'Минуты соцсетей в кошельке' },
     { command: 'partner', description: 'Партнёр по ответственности' },
     { command: 'help', description: 'Справка' },
   ],

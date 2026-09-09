@@ -1,4 +1,4 @@
-import { addDays, diffDays, timeInTz, todayInTz, weekdayMon0 } from '@tracker/shared';
+import { WALLET_SESSION_MAX_MIN, addDays, diffDays, timeInTz, todayInTz, weekdayMon0 } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, type UserRow } from '../lib/db';
 import { missedOn, skippedOn, weekStats } from '../lib/stats';
@@ -7,6 +7,7 @@ import { eveningText, missedSelfText, missedText, morningText, weeklyText } from
 import { openAppKeyboard, webappUrl } from './webhook';
 import { taskKeyboard, taskForDay } from './ielts-tasks';
 import { composeMorning, lessonReminderText } from './homework';
+import { closeSession } from '../api/gate';
 
 /** A reminder is sent if local time is within [target, target + WINDOW_MIN) and not yet sent today. */
 const WINDOW_MIN = 90;
@@ -28,6 +29,12 @@ export async function runCron(env: Env, now = new Date()): Promise<{ morning: nu
   const counts = { morning: 0, evening: 0, weekly: 0, missed: 0, tasks: 0, lessons: 0 };
   const users = await repo.allUsers();
   const lessonRows = await repo.allLessonRows();
+
+  // Sessions whose "app closed" event never arrived: charge the capped time and free the wallet.
+  for (const st of await repo.staleSessions(WALLET_SESSION_MAX_MIN)) {
+    const owner = users.find((x) => x.id === st.user_id);
+    if (owner) await closeSession(repo, owner, st, now);
+  }
 
   for (const u of users) {
     try {

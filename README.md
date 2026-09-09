@@ -24,6 +24,7 @@
 - **IELTS**: цель и дата экзамена (меняется не чаще раза в день), минуты по навыкам, пробные тесты с band по секциям, графики тренда к цели, часов по неделям и дисциплины.
 - **Задание дня по IELTS**: банк из 50+ заданий (Writing T1/T2, Speaking cue cards, Reading/Listening упражнения, словарь по темам, грамматика) — утром вместе с напоминанием, `/task` в любой момент; ответ боту (эссе, голосовое, фото) засчитывается как подтверждение.
 - **Занятия и домашка**: уроки с преподавателем (дни, время, таймзона) — напоминания утром и за N минут; `/hw текст` или фото с подписью «дз» — домашка привязывается к ближайшему занятию, утреннее задание подстраивается под неё (домашка + короткое дополнение по другому навыку), «✅ Сделал» засчитывает занятие.
+- **Кошелёк минут соцсетей**: Reading-мини-тесты (13 вопросов, оригинальные тексты) внутри Mini App → band по официальной шкале → минуты в кошелёк (5.0–5.5 → 10, 6.0 → 15, 6.5+ → 30). Неистраченные минуты переносятся, но банк ограничен (по умолчанию 120 мин, не больше 60 мин в день). Instagram / TikTok / YouTube / VK открываются через `GET /gate/<key>` из «Быстрых команд» на iPhone: нет минут — `BLOCK`, есть — `ALLOW`, время списывается при закрытии приложения.
 - Экспорт всех данных в JSON.
 - Заложен интерфейс AI-модуля (endpoint + key в настройках; вызовов в v1 нет).
 
@@ -107,6 +108,9 @@ GET  /api/ielts              статистика IELTS (недели, проб�
 POST /api/mocks, DELETE /api/mocks/:id
 GET  /api/proofs/:id/image   фото-подтверждение (прокси к Telegram)
 DELETE /api/proofs/:id, DELETE /api/partner
+GET  /api/wallet, PUT /api/wallet   баланс, лимиты, gate-ссылка
+POST /api/reading/submit     { test_id, seconds, answers } → band + начисленные минуты
+GET  /gate/:key?app=&e=open|close|status  → текст «ALLOW N» / «BLOCK 0» (для iOS Shortcuts)
 GET/POST /api/lessons, PUT/DELETE /api/lessons/:id
 GET /api/homeworks, POST /api/homeworks/:id/done, DELETE /api/homeworks/:id
 POST /bot/webhook            Telegram updates (проверяется secret_token)
@@ -124,7 +128,11 @@ entries(id, user_id, activity_id, date, planned, plan_note, done, done_note, min
   unique(activity_id, date)
 proofs(id, user_id, activity_id, date, type photo|chat, file_id, text)
 mock_tests(id, user_id, date, listening, reading, writing, speaking, overall, note)
-users +: strict_mode, partner_chat_id, partner_name, partner_code, ielts_target, ielts_exam_date, ielts_weekly_hours
+users +: strict_mode, partner_chat_id, partner_name, partner_code, ielts_target, ielts_exam_date, ielts_weekly_hours,
+        wallet_enabled, sm_balance, sm_bank_cap, sm_daily_cap, sm_apps, sm_api_key
+reading_attempts(id, user_id, test_id, date, correct, total, band, seconds, earned)
+wallet_ledger(id, user_id, at, date, delta, reason, note)
+wallet_sessions(id, user_id, app, started_at, ended_at, minutes)
 ```
 
 ## Лицензия

@@ -1,4 +1,4 @@
-import type { Activity, ActivityInput, AuthResponse, Entry, Homework, IeltsResponse, Lesson, LessonInput, MockTest, Settings, SettingsView, StatsResponse, TodayResponse } from '@tracker/shared';
+import type { Activity, ActivityInput, AuthResponse, Entry, Homework, IeltsResponse, Lesson, LessonInput, MockTest, ReadingResult, ReadingSubmit, Settings, SettingsView, StatsResponse, TodayResponse, WalletResponse, WalletSettings } from '@tracker/shared';
 import { deviceTz, getInitData } from './tg';
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '';
@@ -74,4 +74,7 @@ export const api = {
   homeworks: () => request<{ homeworks: Homework[] }>('GET', '/api/homeworks'),
   completeHomework: (id: number) => request<{ ok: true }>('POST', `/api/homeworks/${id}/done`),
   deleteHomework: (id: number) => request<{ ok: true }>('DELETE', `/api/homeworks/${id}`),
+  wallet: () => request<WalletResponse>('GET', '/api/wallet'),
+  saveWallet: (w: Partial<WalletSettings>) => request<WalletResponse>('PUT', '/api/wallet', w),
+  submitReading: (body: ReadingSubmit) => request<ReadingResult>('POST', '/api/reading/submit', body),
 };

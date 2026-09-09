@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 import type { Env } from './env';
 import { handleApi } from './api/routes';
+import { handleGate } from './api/gate';
 import { handleWebhook } from './bot/webhook';
 import { runCron } from './bot/cron';
 import { HttpError, json } from './lib/http';
@@ -11,6 +12,15 @@ export default {
 
     if (url.pathname === '/bot/webhook' && req.method === 'POST') {
       return handleWebhook(req, env);
+    }
+
+    if (url.pathname.startsWith('/gate/') && req.method === 'GET') {
+      try {
+        return await handleGate(req, env, url);
+      } catch (e) {
+        console.error(e);
+        return new Response('BLOCK 0\nerror', { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      }
     }
 
     if (url.pathname.startsWith('/api/')) {
