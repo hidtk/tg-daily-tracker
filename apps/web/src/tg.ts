@@ -13,7 +13,7 @@ function stub(): WebAppType {
   return {
     initData: '',
     initDataUnsafe: {},
-    ready: noop, expand: noop, close: noop, openLink: noop, setHeaderColor: noop, disableVerticalSwipes: noop,
+    ready: noop, expand: noop, close: noop, openLink: noop, openTelegramLink: noop, setHeaderColor: noop, setBackgroundColor: noop, disableVerticalSwipes: noop, onEvent: noop, colorScheme: 'light',
     showConfirm: (_m: string, cb?: (ok: boolean) => void) => cb?.(window.confirm(_m)),
     MainButton: btn,
     HapticFeedback: { impactOccurred: noop, notificationOccurred: noop, selectionChanged: noop },
@@ -24,15 +24,27 @@ export const tg: WebAppType = window.Telegram?.WebApp ?? stub();
 
 export const inTelegram = Boolean(tg.initData);
 
+function applyTheme() {
+  const dark = inTelegram ? tg.colorScheme === 'dark' : window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  try {
+    tg.setHeaderColor(dark ? '#161514' : '#f5f1ea');
+    tg.setBackgroundColor(dark ? '#161514' : '#f5f1ea');
+  } catch {
+    /* outside Telegram */
+  }
+}
+
 export function initTelegram() {
   try {
     tg.ready();
     tg.expand();
-    tg.setHeaderColor('secondary_bg_color');
     if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes();
+    tg.onEvent('themeChanged', applyTheme);
   } catch {
     /* running outside Telegram */
   }
+  applyTheme();
 }
 
 export const haptic = {

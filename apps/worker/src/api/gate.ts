@@ -70,8 +70,8 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
       await bot
         .sendMessage(
           user.tg_id,
-          `🔒 <b>${GATE_APP_LABEL[app]}</b> закрыт: минут не осталось.\n\nОткрой трекер и пройди Reading-тест — 10–30 минут за один заход.`,
-          env.WEBAPP_URL ? [[{ text: '📖 Заработать минуты', web_app: { url: env.WEBAPP_URL } }]] : undefined,
+          `<b>${GATE_APP_LABEL[app]}</b> is locked: no minutes left.\n\nPass a Reading test in the trainer — 10 to 30 minutes per test.`,
+          env.WEBAPP_URL ? [[{ text: 'Earn minutes', web_app: { url: env.WEBAPP_URL } }]] : undefined,
         )
         .catch(() => undefined);
     }

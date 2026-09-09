@@ -3,46 +3,38 @@ import type { AuthResponse } from '@tracker/shared';
 import { auth, ApiError } from './api';
 import { haptic } from './tg';
 import { Today } from './screens/Today';
-import { Calendar } from './screens/Calendar';
-import { Activities } from './screens/Activities';
+import { Words } from './screens/Words';
+import { Practice } from './screens/Practice';
+import { Progress } from './screens/Progress';
 import { SettingsScreen } from './screens/Settings';
-import { Ielts } from './screens/Ielts';
-import { Wallet } from './screens/Wallet';
 import { ToastProvider } from './components/Toast';
 
-type Tab = 'today' | 'calendar' | 'wallet' | 'ielts' | 'activities' | 'settings';
+type Tab = 'today' | 'words' | 'practice' | 'progress' | 'settings';
 
-const TABS: { id: Tab; label: string; ico: string }[] = [
-  { id: 'today', label: 'Сегодня', ico: '☀️' },
-  { id: 'calendar', label: 'Календарь', ico: '📅' },
-  { id: 'wallet', label: 'Минуты', ico: '⏳' },
-  { id: 'ielts', label: 'IELTS', ico: '📈' },
-  { id: 'activities', label: 'Активности', ico: '🎯' },
-  { id: 'settings', label: 'Настройки', ico: '⚙️' },
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'today', label: 'Today' },
+  { id: 'words', label: 'Words' },
+  { id: 'practice', label: 'Practice' },
+  { id: 'progress', label: 'Progress' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 export function App() {
   const [session, setSession] = useState<AuthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('today');
-  // bump to force Today to refetch when activities change
-  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     auth()
       .then(setSession)
-      .catch((e: unknown) => setError(e instanceof ApiError ? e.message : 'Не удалось подключиться'));
+      .catch((e: unknown) => setError(e instanceof ApiError ? e.message : 'Could not connect'));
   }, []);
 
   if (error) {
     return (
       <div className="screen center" style={{ paddingTop: 80 }}>
-        <div style={{ fontSize: 40 }}>🔒</div>
-        <p>{error}</p>
-        <p className="muted small">Откройте приложение через кнопку в чате с ботом.</p>
-        <p className="muted small" style={{ opacity: 0.6 }}>
-          {window.Telegram ? `Telegram WebApp ${window.Telegram.WebApp.version} · ${window.Telegram.WebApp.platform}` : 'Telegram SDK не загружен'}
-        </p>
+        <h2>{error}</h2>
+        <p className="muted small" style={{ marginTop: 10 }}>Open the app from the button in the chat with the bot.</p>
       </div>
     );
   }
@@ -50,11 +42,10 @@ export function App() {
 
   return (
     <ToastProvider>
-      {tab === 'today' && <Today key={version} isNew={session.user.is_new} botUsername={session.settings.bot_username} />}
-      {tab === 'calendar' && <Calendar />}
-      {tab === 'wallet' && <Wallet />}
-      {tab === 'ielts' && <Ielts />}
-      {tab === 'activities' && <Activities onChanged={() => setVersion((v) => v + 1)} />}
+      {tab === 'today' && <Today isNew={session.user.is_new} />}
+      {tab === 'words' && <Words />}
+      {tab === 'practice' && <Practice />}
+      {tab === 'progress' && <Progress />}
       {tab === 'settings' && <SettingsScreen initial={session.settings} />}
       <nav className="nav">
         {TABS.map((t) => (
@@ -66,7 +57,6 @@ export function App() {
               setTab(t.id);
             }}
           >
-            <span className="ico">{t.ico}</span>
             {t.label}
           </button>
         ))}

@@ -1,38 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Activity, Entry, Skill, TodayResponse } from '@tracker/shared';
-import { MINUTE_PRESETS, NOTE_MAX, SKILLS, SKILL_LABEL, addDays, diffDays, isConfirmed, isEditable } from '@tracker/shared';
-import { api, ApiError, proofImageUrl } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Entry, Skill, TodayResponse } from '@tracker/shared';
+import { MINUTE_PRESETS, NOTE_MAX, SKILLS, SKILL_LABEL, addDays, diffDays, isEditable } from '@tracker/shared';
+import { api, ApiError } from '../api';
 import { haptic, tg, inTelegram } from '../tg';
 import { useToast } from '../components/Toast';
-import { fmtDate } from '../components/ui';
+import { Section, fmtDate } from '../components/ui';
 
-type DraftEntry = Omit<Entry, 'updated_at'>;
-type Draft = Record<number, DraftEntry>; // by activity_id
-
+type DraftEntry = Omit<Entry, 'updated_at' | 'proofs'>;
 const draftKey = (date: string) => `draft:${date}`;
 
 function emptyEntry(activity_id: number, date: string): DraftEntry {
-  return { activity_id, date, planned: false, plan_note: null, done: false, done_note: null, minutes: 0, skills: null, skipped: false, skip_reason: null, proofs: [] };
+  return { activity_id, date, planned: false, plan_note: null, done: false, done_note: null, minutes: 0, skills: null, skipped: false, skip_reason: null };
 }
 
-function loadDraft(date: string): Draft | null {
+function loadDraft(date: string): DraftEntry | null {
   try {
     const raw = localStorage.getItem(draftKey(date));
-    return raw ? (JSON.parse(raw) as Draft) : null;
+    return raw ? (JSON.parse(raw) as DraftEntry) : null;
   } catch {
     return null;
   }
 }
 
-export function Today({ isNew, botUsername }: { isNew: boolean; botUsername: string }) {
+export function Today({ isNew }: { isNew: boolean }) {
   const toast = useToast();
   const [date, setDate] = useState<string | undefined>(undefined);
   const [data, setData] = useState<TodayResponse | null>(null);
-  const [draft, setDraft] = useState<Draft>({});
+  const [draft, setDraft] = useState<DraftEntry | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showOthers, setShowOthers] = useState(false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
 
@@ -41,32 +38,29 @@ export function Today({ isNew, botUsername }: { isNew: boolean; botUsername: str
     try {
       const r = await api.today(d);
       setData(r);
-      const base: Draft = {};
-      for (const e of r.entries) base[e.activity_id] = { ...e };
-      const saved = loadDraft(r.date);
-      if (saved && r.editable) {
-        for (const [k, v] of Object.entries(saved)) {
-          const id = Number(k);
-          base[id] = { ...v, proofs: base[id]?.proofs ?? [] };
-        }
+      const act = r.activities.find((a) => a.kind === 'ielts') ?? r.activities[0];
+      if (!act) return;
+      const server = r.entries.find((e) => e.activity_id === act.id);
+      const { proofs: _p, updated_at: _u, ...base } = server ?? { ...emptyEntry(act.id, r.date), proofs: [], updated_at: '' };
+      const saved = r.editable ? loadDraft(r.date) : null;
+      if (saved && saved.activity_id === act.id) {
+        setDraft(saved);
         setDirty(true);
-        toast('Восстановлен черновик');
       } else {
+        setDraft(base);
         setDirty(false);
       }
-      setDraft(base);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Ошибка загрузки');
+      setError(e instanceof ApiError ? e.message : 'Could not load');
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     void load(date);
   }, [date, load]);
 
-  // Persist draft locally so nothing is lost when the app is minimized.
   useEffect(() => {
-    if (!data) return;
+    if (!data || !draft) return;
     try {
       if (dirty) localStorage.setItem(draftKey(data.date), JSON.stringify(draft));
       else localStorage.removeItem(draftKey(data.date));
@@ -75,43 +69,39 @@ export function Today({ isNew, botUsername }: { isNew: boolean; botUsername: str
     }
   }, [draft, dirty, data]);
 
-  const update = (id: number, patch: Partial<Entry>) => {
-    if (!data?.editable) return;
-    setDraft((d) => ({ ...d, [id]: { ...(d[id] ?? emptyEntry(id, data.date)), ...patch } }));
+  const update = (patch: Partial<DraftEntry>) => {
+    if (!data?.editable || !draft) return;
+    setDraft({ ...draft, ...patch });
     setDirty(true);
   };
 
   const save = useCallback(async () => {
-    if (!data || saving) return;
+    const d = draftRef.current;
+    if (!data || saving || !d) return;
     setSaving(true);
     try {
-      const entries = Object.values(draftRef.current).map(({ proofs: _p, ...e }) => ({
-        ...e,
-        plan_note: e.plan_note?.trim() || null,
-        done_note: e.done_note?.trim() || null,
-      }));
-      if (!entries.length) return;
-      const r = await api.saveEntries(entries);
-      const next: Draft = {};
-      for (const e of r.entries) next[e.activity_id] = e;
-      setDraft(next);
+      const r = await api.saveEntries([{ ...d, plan_note: d.plan_note?.trim() || null, done_note: d.done_note?.trim() || null }]);
+      const e = r.entries.find((x) => x.activity_id === d.activity_id);
+      if (e) {
+        const { proofs: _p, updated_at: _u, ...rest } = e;
+        setDraft(rest);
+      }
       setDirty(false);
       haptic.success();
-      toast('Сохранено');
+      toast('Saved');
     } catch (e) {
       haptic.warning();
-      toast(e instanceof ApiError ? e.message : 'Не удалось сохранить');
+      toast(e instanceof ApiError ? e.message : 'Could not save');
     } finally {
       setSaving(false);
     }
   }, [data, saving, toast]);
 
-  // Telegram MainButton as the save control
   useEffect(() => {
     if (!inTelegram) return;
     const mb = tg.MainButton;
     if (dirty && data?.editable) {
-      mb.setText(saving ? 'Сохраняю…' : 'Сохранить');
+      mb.setText(saving ? 'Saving…' : 'Save');
       mb.show();
       if (saving) mb.showProgress();
       else mb.hideProgress();
@@ -122,277 +112,109 @@ export function Today({ isNew, botUsername }: { isNew: boolean; botUsername: str
     };
   }, [dirty, saving, data?.editable, save]);
 
-  const today = data?.today;
-  const scheduled = useMemo(() => {
-    if (!data) return [] as Activity[];
-    const ids = new Set(data.scheduled_ids);
-    return data.activities.filter((a) => ids.has(a.id));
-  }, [data]);
-  const others = useMemo(() => {
-    if (!data) return [] as Activity[];
-    const ids = new Set(data.scheduled_ids);
-    return data.activities.filter((a) => !ids.has(a.id));
-  }, [data]);
-
   if (error) return <div className="screen"><div className="err">{error}</div></div>;
-  if (!data || !today) return <span className="spinner" />;
+  if (!data || !draft) return <span className="spinner" />;
 
+  const today = data.today;
   const cur = data.date;
-  const canBack = isEditable(addDays(cur, -1), today, 60); // browse history up to 60 days
+  const canBack = isEditable(addDays(cur, -1), today, 60);
   const canFwd = diffDays(cur, today) > 0;
-  const touchedOthers = others.filter((a) => draft[a.id]?.done || draft[a.id]?.planned);
-  const strict = data.strict_mode;
-  const counted = (e?: DraftEntry) => !!e && (strict ? isConfirmed(e) : e.done);
-  const doneCount = scheduled.filter((a) => counted(draft[a.id])).length;
-  const unconfirmed = scheduled.filter((a) => draft[a.id]?.done && !isConfirmed(draft[a.id])).length;
-  const openBot = () => {
-    haptic.tap();
-    try {
-      tg.openTelegramLink(`https://t.me/${botUsername}`);
-    } catch {
-      window.open(`https://t.me/${botUsername}`, '_blank');
-    }
+  const e = draft;
+  const daysLeft = data.exam_date ? diffDays(cur, data.exam_date) : null;
+  const toggleSkill = (sk: Skill) => {
+    const list = e.skills ?? [];
+    update({ skills: list.includes(sk) ? list.filter((x) => x !== sk) : [...list, sk] });
   };
 
   return (
     <div className="screen">
-      {isNew && (
-        <div className="card" style={{ background: 'color-mix(in srgb, var(--btn) 12%, var(--section))' }}>
-          <div className="card-title">Добро пожаловать 👋</div>
-          <div className="small" style={{ marginTop: 4 }}>
-            Мы добавили три активности по шаблону. Утром отмечай план, вечером — факт. Настроить активности можно во вкладке «Активности».
-          </div>
+      <div className="date-head">
+        <h1 style={{ margin: 0 }}>{fmtDate(cur, today)}</h1>
+        <div className="nav-arrows">
+          <button disabled={!canBack} onClick={() => { haptic.tap(); setDate(addDays(cur, -1)); }}>‹</button>
+          <button disabled={!canFwd} onClick={() => { haptic.tap(); setDate(diffDays(cur, today) === 1 ? undefined : addDays(cur, 1)); }}>›</button>
         </div>
-      )}
-
-      <div className="datenav">
-        <button disabled={!canBack} onClick={() => { haptic.tap(); setDate(addDays(cur, -1)); }}>‹</button>
-        <div className="center">
-          <div className="d">{fmtDate(cur, today)}</div>
-          {cur !== today && <div className="small muted">{cur}</div>}
-        </div>
-        <button disabled={!canFwd} onClick={() => { haptic.tap(); setDate(diffDays(cur, today) === 1 ? undefined : addDays(cur, 1)); }}>›</button>
+      </div>
+      <div className="countdown">
+        {daysLeft != null
+          ? daysLeft >= 0
+            ? <><b>{daysLeft}</b> days to the exam · target <b>{data.target.toFixed(1)}</b></>
+            : 'The exam date has passed'
+          : <>Target <b>{data.target.toFixed(1)}</b> · set the exam date in Settings</>}
+        {!data.editable && ' · read-only'}
       </div>
 
-      {!data.editable && <div className="chip" style={{ marginBottom: 10 }}>Только просмотр — редактировать можно сегодня и вчера</div>}
+      {isNew && (
+        <Section>
+          <p>Welcome. Each morning you get five words and a task; in the evening, log what you did here. Lessons, homework and the exam date are in Settings.</p>
+        </Section>
+      )}
 
       {(data.lessons_today.length > 0 || data.homeworks.length > 0) && (
-        <div className="card" style={{ background: 'color-mix(in srgb, #a855f7 10%, var(--section))' }}>
+        <Section label={data.lessons_today.length ? 'Lesson' : 'Homework'}>
           {data.lessons_today.map((l) => (
-            <div key={l.id} className="row" style={{ justifyContent: 'space-between' }}>
-              <div>🎓 <b>{l.title}</b> сегодня в <b>{l.time}</b></div>
-              <span className="chip">{l.tz.split('/').pop()}</span>
-            </div>
+            <div key={l.id}><b>{l.title}</b> today at {l.time}</div>
           ))}
           {data.homeworks.length > 0 && (
-            <div style={{ marginTop: data.lessons_today.length ? 8 : 0 }}>
-              <div className="small muted" style={{ marginBottom: 4 }}>Домашка</div>
+            <div style={{ marginTop: data.lessons_today.length ? 10 : 0 }}>
               {data.homeworks.map((h) => (
-                <div key={h.id} className="row" style={{ alignItems: 'flex-start', padding: '4px 0' }}>
-                  <button type="button" className="mark done" style={{ flex: 'none', padding: '4px 6px' }} title="Сделал" onClick={async () => {
+                <div key={h.id} className="hw-row">
+                  <button type="button" className="hw-check" title="Done" onClick={async () => {
                     haptic.success();
                     await api.completeHomework(h.id);
                     void load(date);
-                  }}><span className="box" /></button>
-                  <div className="grow small">
+                  }} />
+                  <div className="grow">
                     <div>{h.text}</div>
-                    <div className="muted">{h.due_date ? (diffDays(today, h.due_date) === 0 ? 'к сегодня' : diffDays(today, h.due_date) < 0 ? 'просрочено' : `к ${h.due_date}`) : 'без срока'}{h.tags.length ? ` · ${h.tags.join(', ')}` : ''}</div>
+                    <div className="muted small">
+                      {h.due_date ? (diffDays(today, h.due_date) === 0 ? 'due today' : diffDays(today, h.due_date) < 0 ? 'overdue' : `due ${h.due_date}`) : 'no deadline'}
+                      {h.tags.length ? ` · ${h.tags.join(', ')}` : ''}
+                    </div>
                   </div>
                 </div>
               ))}
-              <div className="hint" style={{ marginTop: 4 }}>Добавить: боту «/hw текст» или фото с подписью «дз».</div>
+              <div className="hint">Add homework in the chat: <i>/hw text</i>, or a photo captioned “hw”.</div>
             </div>
           )}
-        </div>
+        </Section>
       )}
 
-      {scheduled.length === 0 && (
-        <div className="card center muted">На этот день ничего не запланировано по расписанию.</div>
-      )}
-
-      {scheduled.length > 0 && (
-        <div className="row" style={{ margin: '0 4px 8px', justifyContent: 'space-between' }}>
-          <span className="muted small">{strict ? 'Засчитано' : 'Сделано'} {doneCount} из {scheduled.length}</span>
-          {strict && unconfirmed > 0 && data.editable && (
-            <button className="btn ghost small" style={{ padding: 0 }} onClick={openBot}>📷 Подтвердить {unconfirmed} →</button>
-          )}
-        </div>
-      )}
-
-      {scheduled.map((a) => (
-        <ActivityCard key={a.id} a={a} e={draft[a.id]} date={cur} editable={data.editable} strict={strict} onChange={(p) => update(a.id, p)} onOpenBot={openBot} />
-      ))}
-
-      {others.length > 0 && (
-        <>
-          <button className="btn ghost" style={{ margin: '4px 0 8px' }} onClick={() => setShowOthers((v) => !v)}>
-            {showOthers ? 'Скрыть' : 'Показать'} вне расписания ({others.length}){touchedOthers.length && !showOthers ? ` · отмечено ${touchedOthers.length}` : ''}
-          </button>
-          {showOthers && others.map((a) => (
-            <ActivityCard key={a.id} a={a} e={draft[a.id]} date={cur} editable={data.editable} strict={strict} onChange={(p) => update(a.id, p)} onOpenBot={openBot} offSchedule />
-          ))}
-        </>
-      )}
-
-      {dirty && data.editable && !inTelegram && (
-        <button className="btn savebar" disabled={saving} onClick={save}>
-          {saving ? 'Сохраняю…' : 'Сохранить'}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function statusOf(e: DraftEntry | undefined, strict: boolean): { text: string; cls: string } | null {
-  if (!e) return null;
-  const confirmed = isConfirmed(e);
-  if (e.skipped && !e.done) return { text: 'Осознанный пропуск — в стрик не идёт как провал (1 раз в неделю), партнёр увидит причину', cls: 'skip' };
-  if (e.done && strict && !confirmed) return { text: 'Отмечено, но не подтверждено — не идёт в стрик', cls: 'warn' };
-  if (e.planned && e.done) return { text: confirmed ? 'План ✓ · Факт ✓ · Подтверждено' : 'План ✓ · Факт ✓', cls: 'good' };
-  if (e.planned && !e.done) return { text: 'Запланировано, ещё не отмечено', cls: '' };
-  if (!e.planned && e.done) return { text: confirmed ? 'Не планировал, но сделал · Подтверждено' : 'Не планировал, но сделал', cls: 'bonus' };
-  return null;
-}
-
-function ActivityCard({
-  a, e, date, editable, strict, onChange, onOpenBot, offSchedule,
-}: {
-  a: Activity;
-  e?: DraftEntry;
-  date: string;
-  editable: boolean;
-  strict: boolean;
-  onChange: (p: Partial<Entry>) => void;
-  onOpenBot: () => void;
-  offSchedule?: boolean;
-}) {
-  const st = statusOf(e, strict);
-  const daysLeft = a.goal_date ? diffDays(date, a.goal_date) : null;
-  const proofs = e?.proofs ?? [];
-  const photos = proofs.filter((p) => p.type === 'photo');
-  const chats = proofs.filter((p) => p.type === 'chat');
-  const [showProofs, setShowProofs] = useState(false);
-  const toggleSkill = (sk: Skill) => {
-    const cur = e?.skills ?? [];
-    onChange({ skills: cur.includes(sk) ? cur.filter((x) => x !== sk) : [...cur, sk] });
-  };
-  return (
-    <div className="card act" style={{ ['--act-color' as string]: a.color, opacity: offSchedule ? 0.85 : 1 }}>
-      <div className="emoji">{a.emoji}</div>
-      <div className="grow">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <div className="name">{a.name}</div>
-          <div className="row" style={{ gap: 6 }}>
-            {proofs.length > 0 && (
-              <button type="button" className="chip proof" onClick={() => setShowProofs((v) => !v)}>
-                {photos.length > 0 && `📷 ${photos.length}`}{photos.length > 0 && chats.length > 0 && ' · '}{chats.length > 0 && `💬 ${chats.length}`}
-              </button>
-            )}
-            {offSchedule && <span className="chip">вне расписания</span>}
-          </div>
-        </div>
-        {a.goal_text && (
-          <div className="goal">
-            🎯 {a.goal_text}
-            {daysLeft !== null && (daysLeft >= 0 ? ` · осталось ${daysLeft} дн.` : ` · прошло ${-daysLeft} дн.`)}
-          </div>
-        )}
+      <Section label="Practice">
         <div className="marks">
-          <button
-            type="button"
-            className={`mark plan ${e?.planned ? 'on' : ''}`}
-            disabled={!editable}
-            onClick={() => { haptic.tap(); onChange({ planned: !e?.planned }); }}
-          >
-            <span className="box">{e?.planned ? '✓' : ''}</span>
-            <span className="lbl">План</span>
-          </button>
-          <button
-            type="button"
-            className={`mark done ${e?.done ? 'on' : ''} ${e?.done && strict && !isConfirmed(e) ? 'unconfirmed' : ''}`}
-            disabled={!editable}
-            onClick={() => { e?.done ? haptic.tap() : haptic.success(); onChange({ done: !e?.done, skipped: false }); }}
-          >
-            <span className="box">{e?.done ? (strict && !isConfirmed(e) ? '·' : '✓') : ''}</span>
-            <span className="lbl">Сделал</span>
-          </button>
-          <button
-            type="button"
-            className={`mark skip ${e?.skipped && !e?.done ? 'on' : ''}`}
-            disabled={!editable}
-            title="Не буду сегодня"
-            onClick={() => { haptic.warning(); onChange({ skipped: !(e?.skipped && !e?.done), done: false }); }}
-          >
-            <span className="box">{e?.skipped && !e?.done ? '⏸' : ''}</span>
-            <span className="lbl">Не буду</span>
-          </button>
+          <button type="button" className={`mark ${e.planned ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.tap(); update({ planned: !e.planned }); }}>Planned</button>
+          <button type="button" className={`mark ${e.done ? 'on' : ''}`} disabled={!data.editable} onClick={() => { e.done ? haptic.tap() : haptic.success(); update({ done: !e.done, skipped: false }); }}>Done</button>
+          <button type="button" className={`mark skip ${e.skipped && !e.done ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.warning(); update({ skipped: !(e.skipped && !e.done), done: false }); }}>Skip</button>
         </div>
-        {e?.skipped && !e?.done && (
-          <textarea
-            className="note"
-            placeholder="Почему? (болею, экзамен, нет сил — честно)"
-            maxLength={NOTE_MAX}
-            rows={1}
-            disabled={!editable}
-            value={e?.skip_reason ?? ''}
-            onChange={(ev) => onChange({ skip_reason: ev.target.value })}
-          />
+        {e.skipped && !e.done && (
+          <textarea className="note" placeholder="Why? (ill, exam, no energy — be honest)" maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.skip_reason ?? ''} onChange={(ev) => update({ skip_reason: ev.target.value })} />
         )}
-        {(e?.planned || e?.plan_note) && (
-          <textarea
-            className="note"
-            placeholder="План (напр. Listening part 2, 30 мин)"
-            maxLength={NOTE_MAX}
-            rows={1}
-            disabled={!editable}
-            value={e?.plan_note ?? ''}
-            onChange={(ev) => onChange({ plan_note: ev.target.value })}
-          />
+        {(e.planned || e.plan_note) && (
+          <textarea className="note" placeholder="Plan (e.g. Listening section 2, 30 min)" maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.plan_note ?? ''} onChange={(ev) => update({ plan_note: ev.target.value })} />
         )}
-        {e?.done && (
+        {e.done && (
           <>
-            <div className="chips" style={{ marginTop: 8 }}>
+            <div className="label" style={{ marginTop: 12 }}>Minutes</div>
+            <div className="chips">
               {MINUTE_PRESETS.map((m) => (
-                <button key={m} type="button" className={`chip sel ${e.minutes === m ? 'on' : ''}`} disabled={!editable}
-                  onClick={() => { haptic.select(); onChange({ minutes: e.minutes === m ? 0 : m }); }}>{m}м</button>
+                <button key={m} type="button" className={`chip ${e.minutes === m ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.select(); update({ minutes: e.minutes === m ? 0 : m }); }}>{m}</button>
               ))}
             </div>
-            {a.kind === 'ielts' && (
-              <div className="chips" style={{ marginTop: 6 }}>
-                {SKILLS.map((sk) => (
-                  <button key={sk} type="button" className={`chip sel ${e.skills?.includes(sk) ? 'on' : ''}`} disabled={!editable}
-                    onClick={() => { haptic.select(); toggleSkill(sk); }}>{SKILL_LABEL[sk]}</button>
-                ))}
-              </div>
-            )}
+            <div className="label" style={{ marginTop: 12 }}>Skills</div>
+            <div className="chips">
+              {SKILLS.map((sk) => (
+                <button key={sk} type="button" className={`chip ${e.skills?.includes(sk) ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.select(); toggleSkill(sk); }}>{SKILL_LABEL[sk]}</button>
+              ))}
+            </div>
+            <textarea className="note" placeholder="How did it go? (optional)" maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.done_note ?? ''} onChange={(ev) => update({ done_note: ev.target.value })} />
           </>
         )}
-        {(e?.done || e?.done_note) && (
-          <textarea
-            className="note"
-            placeholder="Как прошло? (необязательно)"
-            maxLength={NOTE_MAX}
-            rows={1}
-            disabled={!editable}
-            value={e?.done_note ?? ''}
-            onChange={(ev) => onChange({ done_note: ev.target.value })}
-          />
-        )}
-        {st && <div className={`status ${st.cls}`}>{st.text}</div>}
-        {e?.done && strict && !isConfirmed(e) && editable && (
-          <button type="button" className="btn secondary sm" style={{ marginTop: 8 }} onClick={onOpenBot}>📷 Отправить подтверждение боту</button>
-        )}
-        {showProofs && proofs.length > 0 && (
-          <div className="proofs">
-            {photos.map((p) => (
-              <img key={p.id} src={proofImageUrl(p.id)} alt="proof" loading="lazy" />
-            ))}
-            {chats.map((p) => (
-              <div key={p.id} className="proof-text">💬 {p.text?.slice(0, 160)}{(p.text?.length ?? 0) > 160 ? '…' : ''}</div>
-            ))}
-          </div>
-        )}
-      </div>
+        {e.skipped && !e.done && <div className="status">A deliberate skip: once a week it does not break the streak. Your partner sees the reason.</div>}
+        {e.planned && !e.done && !e.skipped && <div className="status">Planned, not yet done.</div>}
+      </Section>
+
+      {dirty && data.editable && !inTelegram && (
+        <button className="btn solid block savebar" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
+      )}
     </div>
   );
 }

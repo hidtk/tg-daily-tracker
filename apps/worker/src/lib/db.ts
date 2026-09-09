@@ -34,6 +34,19 @@ export interface UserRow {
   sm_daily_cap: number;
   sm_apps: string | null;
   sm_api_key: string | null;
+  vocab_per_day: number;
+  last_vocab_sent: string | null;
+}
+
+export interface VocabRow {
+  user_id: number;
+  word_id: number;
+  stage: number;
+  introduced_on: string;
+  next_review: string;
+  reviews: number;
+  lapses: number;
+  last_reviewed: string | null;
 }
 
 interface ActivityRow extends Omit<Activity, 'schedule_days'> {
@@ -176,6 +189,7 @@ export function userSettings(u: UserRow): Settings {
     ielts_exam_date: u.ielts_exam_date,
     ielts_weekly_hours: u.ielts_weekly_hours ?? 7,
     ielts_daily_task: (u.ielts_daily_task ?? 1) !== 0,
+    vocab_per_day: u.vocab_per_day ?? 5,
   };
 }
 
@@ -248,7 +262,7 @@ export class Repo {
     return this.updateUser(userId, patch);
   }
 
-  markSent(userId: number, col: 'last_morning_sent' | 'last_evening_sent' | 'last_weekly_sent' | 'last_partner_report' | 'last_task_sent', date: string) {
+  markSent(userId: number, col: 'last_morning_sent' | 'last_evening_sent' | 'last_weekly_sent' | 'last_partner_report' | 'last_task_sent' | 'last_vocab_sent', date: string) {
     return this.db.prepare(`UPDATE users SET ${col} = ? WHERE id = ?`).bind(date, userId).run();
   }
 
@@ -663,6 +677,74 @@ export class Repo {
       .all<{ id: number; user_id: number; app: string; started_at: string }>();
     return results;
   }
+
+  // ---- vocabulary ----
+
+  async vocabAll(userId: number): Promise<VocabRow[]> {
+    const { results } = await this.db.prepare('SELECT * FROM vocab_progress WHERE user_id = ? ORDER BY word_id').bind(userId).all<VocabRow>();
+    return results;
+  }
+
+  async vocabDue(userId: number, today: string): Promise<VocabRow[]> {
+    const { results } = await this.db
+      .prepare('SELECT * FROM vocab_progress WHERE user_id = ? AND next_review <= ? AND introduced_on < ? ORDER BY next_review, word_id')
+      .bind(userId, today, today)
+      .all<VocabRow>();
+    return results;
+  }
+
+  async vocabIntroducedOn(userId: number, date: string): Promise<VocabRow[]> {
+    const { results } = await this.db
+      .prepare('SELECT * FROM vocab_progress WHERE user_id = ? AND introduced_on = ? ORDER BY word_id')
+      .bind(userId, date)
+      .all<VocabRow>();
+    return results;
+  }
+
+  /** Introduce the next `n` unseen words (bank order) for `date`. Returns the rows introduced. */
+  async vocabIntroduce(userId: number, date: string, n: number, total: number): Promise<VocabRow[]> {
+    if (n <= 0) return [];
+    const r = await this.db.prepare('SELECT MAX(word_id) AS m FROM vocab_progress WHERE user_id = ?').bind(userId).first<{ m: number | null }>();
+    const start = (r?.m ?? 0) + 1;
+    const rows: VocabRow[] = [];
+    const next = addDaysIso(date, 1);
+    for (let id = start; id < start + n && id <= total; id++) {
+      await this.db
+        .prepare('INSERT OR IGNORE INTO vocab_progress (user_id, word_id, stage, introduced_on, next_review) VALUES (?, ?, 0, ?, ?)')
+        .bind(userId, id, date, next)
+        .run();
+      rows.push({ user_id: userId, word_id: id, stage: 0, introduced_on: date, next_review: next, reviews: 0, lapses: 0, last_reviewed: null });
+    }
+    return rows;
+  }
+
+  async vocabGet(userId: number, wordId: number): Promise<VocabRow | null> {
+    return this.db.prepare('SELECT * FROM vocab_progress WHERE user_id = ? AND word_id = ?').bind(userId, wordId).first<VocabRow>();
+  }
+
+  async vocabRecordReview(userId: number, wordId: number, ok: boolean, today: string, stage: number, nextReview: string) {
+    await this.db
+      .prepare(
+        `UPDATE vocab_progress SET stage = ?, next_review = ?, reviews = reviews + 1, lapses = lapses + ?, last_reviewed = ? WHERE user_id = ? AND word_id = ?`,
+      )
+      .bind(stage, nextReview, ok ? 0 : 1, today, userId, wordId)
+      .run();
+    await this.db.prepare('INSERT INTO vocab_reviews (user_id, word_id, date, ok) VALUES (?, ?, ?, ?)').bind(userId, wordId, today, ok ? 1 : 0).run();
+  }
+
+  async vocabHistory(userId: number, from: string): Promise<{ date: string; reviews: number; correct: number }[]> {
+    const { results } = await this.db
+      .prepare('SELECT date, COUNT(*) AS reviews, SUM(ok) AS correct FROM vocab_reviews WHERE user_id = ? AND date >= ? GROUP BY date ORDER BY date')
+      .bind(userId, from)
+      .all<{ date: string; reviews: number; correct: number }>();
+    return results;
+  }
+}
+
+function addDaysIso(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + n));
+  return t.toISOString().slice(0, 10);
 }
 
 function randomKey(): string {

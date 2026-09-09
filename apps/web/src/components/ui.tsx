@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { haptic } from '../tg';
+import { haptic, tg } from '../tg';
 
 export function Switch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -32,11 +32,9 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
   return (
     <div className="sheet-bg" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="sheet-head">
           <h2>{title}</h2>
-          <button className="btn ghost" onClick={onClose}>
-            Закрыть
-          </button>
+          <button className="btn link" onClick={onClose}>Close</button>
         </div>
         {children}
       </div>
@@ -53,34 +51,39 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-export function Segmented<T extends string>({ value, options, onChange }: { value: T; options: { v: T; l: string }[]; onChange: (v: T) => void }) {
+export function Section({ label, children }: { label?: string; children: ReactNode }) {
   return (
-    <div className="seg">
-      {options.map((o) => (
-        <button
-          key={o.v}
-          type="button"
-          className={value === o.v ? 'on' : ''}
-          onClick={() => {
-            haptic.select();
-            onChange(o.v);
-          }}
-        >
-          {o.l}
-        </button>
-      ))}
+    <div className="section">
+      {label && <div className="label">{label}</div>}
+      {children}
     </div>
   );
 }
 
-export const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-export const MONTHS_GEN_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-export const WD_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+export function confirmDialog(msg: string): Promise<boolean> {
+  return new Promise((res) => {
+    try {
+      tg.showConfirm(msg, res);
+    } catch {
+      res(window.confirm(msg));
+    }
+  });
+}
+
+export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+export const WD_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function fmtDate(iso: string, today?: string): string {
-  if (iso === today) return 'Сегодня';
+  if (iso === today) return 'Today';
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
-  const wd = WD_RU[(dt.getUTCDay() + 6) % 7];
-  return `${wd}, ${d} ${MONTHS_GEN_RU[m - 1]}`;
+  const wd = WD_LONG[(dt.getUTCDay() + 6) % 7];
+  return `${wd}, ${d} ${MONTHS_SHORT[m - 1]}`;
+}
+
+export function fmtShort(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number);
+  return `${d} ${MONTHS_SHORT[m - 1]}`;
 }

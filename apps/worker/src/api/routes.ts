@@ -21,6 +21,7 @@ import {
   isCorrect,
   type ReadingResult,
   type WalletResponse,
+  VocabReviewSchema,
   type AuthResponse,
   type SettingsView,
   type StatsResponse,
@@ -30,13 +31,14 @@ import type { Env } from '../env';
 import { Repo, userSettings, walletSettings, type UserRow } from '../lib/db';
 import { HttpError, json, readJson } from '../lib/http';
 import { issueToken, verifyToken } from '../lib/session';
-import { Bot, validateInitData } from '../lib/telegram';
+import { validateInitData } from '../lib/telegram';
 import { computeStreaks, heatmapForRange, ieltsStats } from '../lib/stats';
+import { reviewWord, vocabState } from '../lib/vocab';
 
 export function settingsView(u: UserRow, env: Env, today: string): SettingsView {
   return {
     ...userSettings(u),
-    partner: u.partner_chat_id ? { name: u.partner_name ?? 'партнёр', linked: true } : null,
+    partner: u.partner_chat_id ? { name: u.partner_name ?? 'partner', linked: true } : null,
     deadline_editable: u.ielts_deadline_changed_on !== today,
     bot_username: env.BOT_USERNAME,
   };
@@ -57,8 +59,7 @@ async function requireUser(req: Request, env: Env, repo: Repo): Promise<UserRow>
   const auth = req.headers.get('authorization') ?? '';
   // Bearer header normally; `?token=` is allowed only for GET /api/export (opened as a link from the Mini App).
   const url = new URL(req.url);
-  const queryToken =
-    req.method === 'GET' && (url.pathname === '/api/export' || /^\/api\/proofs\/\d+\/image$/.test(url.pathname)) ? url.searchParams.get('token') : null;
+  const queryToken = req.method === 'GET' && url.pathname === '/api/export' ? url.searchParams.get('token') : null;
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : queryToken;
   const tgId = await verifyToken(token, env.SESSION_SECRET);
   if (!tgId) throw new HttpError(401, 'Unauthorized');
@@ -90,7 +91,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
 
   const user = await requireUser(req, env, repo);
   const today = todayInTz(user.tz);
-  const strict = !!user.strict_mode;
+  const strict = false; // strict mode retired with the IELTS-only refocus
 
   // ---- GET /api/today?date= ----
   if (path === '/today' && method === 'GET') {
@@ -109,6 +110,8 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
       strict_mode: strict,
       lessons_today: lessons.filter((l) => l.weekdays.includes(weekdayMon0(date))),
       homeworks: date === today ? await repo.openHomeworks(user.id) : [],
+      exam_date: user.ielts_exam_date,
+      target: user.ielts_target ?? 7,
     };
     return json(res);
   }
@@ -174,7 +177,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     if (patch.tz && !isValidTz(patch.tz)) throw new HttpError(400, 'Invalid timezone');
     const extra: Record<string, unknown> = {};
     if (patch.ielts_exam_date !== undefined && patch.ielts_exam_date !== user.ielts_exam_date) {
-      if (user.ielts_deadline_changed_on === today) throw new HttpError(429, 'Дату экзамена можно менять один раз в день');
+      if (user.ielts_deadline_changed_on === today) throw new HttpError(429, 'The exam date can be changed once a day');
       extra.ielts_deadline_changed_on = today;
     }
     await repo.updateUser(user.id, { ...patch, ...extra });
@@ -241,23 +244,15 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     return json({ ok: true });
   }
 
-  // ---- /api/proofs/:id ----
-  const proofMatch = path.match(/^\/proofs\/(\d+)(\/image)?$/);
-  if (proofMatch) {
-    const proof = await repo.getProof(user.id, Number(proofMatch[1]));
-    if (!proof) throw new HttpError(404, 'Not found');
-    if (method === 'DELETE') {
-      await repo.deleteProof(user.id, proof.id);
-      return json({ ok: true });
-    }
-    if (method === 'GET' && proofMatch[2] && proof.file_id) {
-      // Proxy the Telegram photo (file_id is opaque; the file lives on Telegram servers).
-      const bot = new Bot(env.BOT_TOKEN);
-      const url = await bot.fileUrl(proof.file_id);
-      if (!url) throw new HttpError(502, 'Telegram file unavailable');
-      const r = await fetch(url);
-      return new Response(r.body, { status: r.status, headers: { 'content-type': r.headers.get('content-type') ?? 'image/jpeg', 'cache-control': 'private, max-age=86400' } });
-    }
+  // ---- /api/vocab ----
+  if (path === '/vocab' && method === 'GET') {
+    return json(await vocabState(repo, user, today));
+  }
+  if (path === '/vocab/review' && method === 'POST') {
+    const body = VocabReviewSchema.parse(await readJson(req));
+    const card = await reviewWord(repo, user, body.word_id, body.ok, today);
+    if (!card) throw new HttpError(404, 'Word not started');
+    return json({ card });
   }
 
   // ---- /api/wallet ----
@@ -306,9 +301,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     });
 
     await repo.addAttempt(user.id, { test_id: test.id, date: today, correct, total: test.questions.length, band, seconds: body.seconds, earned: credit.earned });
-    const newBalance = credit.earned
-      ? await repo.addMinutes(user.id, today, credit.earned, 'reading', test.id, w.bank_cap)
-      : balance;
+    const newBalance = credit.earned ? await repo.addMinutes(user.id, today, credit.earned, 'reading', test.id, w.bank_cap) : balance;
 
     const res: ReadingResult = {
       correct,

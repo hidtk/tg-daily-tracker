@@ -1,115 +1,98 @@
-import type { Activity, Entry } from '@tracker/shared';
-import { countsAsDone, diffDays, isConfirmed, isScheduledOn } from '@tracker/shared';
+import type { Activity, Entry, VocabCard } from '@tracker/shared';
+import { diffDays, isScheduledOn } from '@tracker/shared';
 import { escapeHtml } from '../lib/telegram';
 import type { WeekStats } from '../lib/stats';
 
-export function fmtDateRu(iso: string): string {
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function fmtDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
-  const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-  return `${d} ${months[m - 1]}${y !== new Date().getUTCFullYear() ? ' ' + y : ''}`;
+  return `${d} ${MONTHS[m - 1]}${y !== new Date().getUTCFullYear() ? ' ' + y : ''}`;
 }
 
 export function welcomeText(firstName: string, isNew: boolean): string {
-  const hi = `Привет, ${escapeHtml(firstName || 'друг')}! 👋`;
+  const hi = `Hello, ${escapeHtml(firstName || 'there')}.`;
   if (isNew) {
-    return `${hi}\n\nЭто твой дневной трекер. Утром отмечаешь план, вечером — факт. Я буду напоминать и присылать недельную сводку.\n\nЯ уже добавил три активности: English (IELTS), Диплом и Спорт (через день). Открой трекер, чтобы настроить их под себя.\n\n📷 Чтобы занятие <b>засчиталось</b>, пришли мне фото или перешли диалог с ИИ — это подтверждение.`;
+    return `${hi}\n\nThis is your IELTS trainer. Every morning I send five new words and a practice task; every evening I ask whether you practised. Lessons and homework live here too.\n\nOpen the app to set your target band, exam date and lesson times.`;
   }
-  return `${hi}\n\nОткрой трекер, чтобы отметить план или факт за сегодня. Фото или пересланный чат с ИИ — это подтверждение занятия.`;
+  return `${hi}\n\nOpen the app to log today’s practice, or use /task, /words and /hw.`;
 }
 
 export function helpText(): string {
   return [
-    '<b>Команды</b>',
-    '/app — открыть трекер',
-    '/today — статус за сегодня',
-    '/task — задание дня по IELTS (/task writing2 · speaking · reading · vocab · writing1 · listening · grammar)',
-    '/hw — домашка: список; /hw текст — добавить (или фото с подписью «дз»); /hw done N — сделал',
-    '/minutes — сколько минут соцсетей в кошельке',
-    '/partner — партнёр по ответственности (ссылка для друга или код для группы)',
-    '/partner off — отвязать партнёра',
-    '/help — эта справка',
+    '<b>Commands</b>',
+    '/app — open the trainer',
+    '/today — today’s status',
+    '/task — today’s practice task (/task writing2 · speaking · reading · writing1 · listening · grammar)',
+    '/words — today’s vocabulary and reviews',
+    '/hw — homework: list; /hw text — add (or a photo with the caption “hw”); /hw done N — mark done',
+    '/minutes — social-media minutes in the wallet',
+    '/partner — accountability partner (a link for a friend or a code for a group)',
+    '/partner off — unlink the partner',
+    '/help — this message',
     '',
-    '<b>Подтверждение занятий</b>',
-    'Пришли фото (тетрадь, экран, зал), голосовое (Speaking) или перешли диалог с ChatGPT/Claude (или ссылку на него) — я спрошу, к какой активности привязать, и засчитаю. Текст эссе от 200 символов тоже считается.',
-    'В строгом режиме без подтверждения занятие не идёт в стрик и статистику.',
-    '',
-    'Напоминания, режим и время сводки — в приложении (Настройки).',
+    'Reminder times, lessons and the exam date are in the app (Settings).',
   ].join('\n');
 }
 
-function mark(e: Entry | undefined, strict: boolean): string {
-  if (!e) return '⬜';
-  if (isConfirmed(e)) return '✅';
-  if (e.skipped && !e.done) return '⏸';
-  if (e.done) return strict ? '☑️' : '✅';
-  return '⬜';
+function mark(e: Entry | undefined): string {
+  if (!e) return '☐';
+  if (e.done) return '☑';
+  if (e.skipped) return '—';
+  return '☐';
 }
 
-export function todayStatusText(date: string, activities: Activity[], entries: Entry[], strict: boolean): string {
+export function todayStatusText(date: string, activities: Activity[], entries: Entry[]): string {
   const scheduled = activities.filter((a) => isScheduledOn(a, date));
-  if (!scheduled.length) return `На ${fmtDateRu(date)} ничего не запланировано по расписанию.`;
+  if (!scheduled.length) return `Nothing scheduled for ${fmtDate(date)}.`;
   const byId = new Map(entries.map((e) => [e.activity_id, e]));
   const lines = scheduled.map((a) => {
     const e = byId.get(a.id);
-    const plan = e?.planned ? '📝' : '·';
     const note = e?.done_note || e?.plan_note;
-    const goal = a.goal_date ? ` <i>(${diffDays(date, a.goal_date)} дн. до ${escapeHtml(a.goal_text ?? 'цели')})</i>` : '';
-    const mins = e?.minutes ? ` · ${e.minutes} мин` : '';
-    return `${mark(e, strict)} ${plan} ${a.emoji} <b>${escapeHtml(a.name)}</b>${mins}${goal}${note ? `\n      <i>${escapeHtml(note)}</i>` : ''}`;
+    const goal = a.goal_date ? ` <i>(${diffDays(date, a.goal_date)} days to ${escapeHtml(a.goal_text ?? 'the goal')})</i>` : '';
+    const mins = e?.minutes ? ` · ${e.minutes} min` : '';
+    const skills = e?.skills?.length ? ` · ${e.skills.join(', ')}` : '';
+    return `${mark(e)} <b>${escapeHtml(a.name)}</b>${mins}${skills}${goal}${note ? `\n      <i>${escapeHtml(note)}</i>` : ''}`;
   });
-  const doneCount = scheduled.filter((a) => byId.get(a.id) && countsAsDone(byId.get(a.id)!, strict)).length;
-  const unconfirmed = scheduled.filter((a) => byId.get(a.id)?.done && !isConfirmed(byId.get(a.id)!)).length;
-  const tail = strict && unconfirmed ? `\n\n☑️ ${unconfirmed} без подтверждения — пришли фото или чат с ИИ, чтобы засчитать.` : '';
-  return `<b>${fmtDateRu(date)}</b> — засчитано ${doneCount} из ${scheduled.length}\n\n${lines.join('\n')}${tail}`;
+  const done = scheduled.filter((a) => byId.get(a.id)?.done).length;
+  return `<b>${fmtDate(date)}</b> — ${done ? 'practised' : 'not practised yet'}\n\n${lines.join('\n')}`;
 }
 
 export function morningText(date: string, activities: Activity[]): string {
-  const scheduled = activities.filter((a) => isScheduledOn(a, date));
-  const list = scheduled.map((a) => `${a.emoji} ${escapeHtml(a.name)}`).join('\n');
-  return `☀️ <b>Доброе утро!</b> Что планируешь на сегодня?\n\n${list || 'Сегодня по расписанию пусто.'}`;
+  void date;
+  void activities;
+  return `<b>Good morning.</b> Today’s words and task are below. Mark the plan in the app when you know what you will do.`;
 }
 
-export function eveningText(date: string, activities: Activity[], entries: Entry[], strict: boolean): string {
+export function eveningText(date: string, activities: Activity[], entries: Entry[]): string {
   const scheduled = activities.filter((a) => isScheduledOn(a, date));
   const byId = new Map(entries.map((e) => [e.activity_id, e]));
-  const planned = scheduled.filter((a) => byId.get(a.id)?.planned);
-  const list = (planned.length ? planned : scheduled).map((a) => {
+  const list = scheduled.map((a) => {
     const e = byId.get(a.id);
-    return `${mark(e, strict)} ${a.emoji} ${escapeHtml(a.name)}${e?.plan_note ? ` — <i>${escapeHtml(e.plan_note)}</i>` : ''}`;
+    return `${mark(e)} ${escapeHtml(a.name)}${e?.plan_note ? ` — <i>${escapeHtml(e.plan_note)}</i>` : ''}`;
   });
-  const hint = strict ? '\n\n📷 Пришли фото или перешли чат с ИИ — и занятие засчитается.' : '';
-  return `🌙 <b>Как прошёл день?</b> Отметь, что получилось.\n\n${list.join('\n') || 'Сегодня по расписанию пусто.'}${hint}`;
+  return `<b>How did it go?</b> Log your minutes and skills for today.\n\n${list.join('\n') || 'Nothing scheduled today.'}`;
 }
 
-export function weeklyText(cur: WeekStats, prev: WeekStats, strict: boolean, ownerName?: string): string {
+export function weeklyText(cur: WeekStats, prev: WeekStats, ownerName?: string): string {
   const pct = (d: number, s: number) => (s ? Math.round((d / s) * 100) : 0);
-  const lines = cur.perActivity.map(({ activity, done, scheduled, unconfirmed, skipped }) => {
+  const lines = cur.perActivity.map(({ activity, done, scheduled, skipped }) => {
     const bar = scheduled ? '▰'.repeat(Math.min(7, Math.round((done / scheduled) * 7))).padEnd(7, '▱') : '———————';
-    const unc = strict && unconfirmed ? ` <i>(+${unconfirmed} без подтв.)</i>` : '';
-    const sk = skipped ? ` <i>(⏸ ${skipped})</i>` : '';
-    return `${activity.emoji} <b>${escapeHtml(activity.name)}</b>: ${done} из ${scheduled}  ${bar}${unc}${sk}`;
+    const sk = skipped ? ` <i>(skipped ${skipped})</i>` : '';
+    return `<b>${escapeHtml(activity.name)}</b>: ${done} of ${scheduled} days  ${bar}${sk}`;
   });
-  const best = [...cur.perActivity].filter((x) => x.scheduled > 0).sort((a, b) => pct(b.done, b.scheduled) - pct(a.done, a.scheduled) || b.done - a.done)[0];
   const curPct = pct(cur.doneTotal, cur.scheduledTotal);
   const prevPct = pct(prev.doneTotal, prev.scheduledTotal);
   const delta = curPct - prevPct;
   const cmp = prev.scheduledTotal
     ? delta > 0
-      ? `📈 На ${delta} п.п. лучше прошлой недели (${prevPct}%)`
+      ? `${delta} points better than last week (${prevPct}%).`
       : delta < 0
-        ? `📉 На ${-delta} п.п. ниже прошлой недели (${prevPct}%)`
-        : `➡️ Как на прошлой неделе (${prevPct}%)`
+        ? `${-delta} points below last week (${prevPct}%).`
+        : `Same as last week (${prevPct}%).`
     : '';
-  const title = ownerName ? `📊 <b>Итоги недели ${escapeHtml(ownerName)}</b>` : '📊 <b>Итоги недели</b>';
-  return [
-    `${title} ${fmtDateRu(cur.from)} — ${fmtDateRu(cur.to)}`,
-    '',
-    ...lines,
-    '',
-    `Всего: <b>${cur.doneTotal} из ${cur.scheduledTotal}</b> (${curPct}%)`,
-    best ? `🏆 Лучшая активность: ${best.activity.emoji} ${escapeHtml(best.activity.name)}` : '',
-    cmp,
-  ]
+  const title = ownerName ? `<b>${escapeHtml(ownerName)}’s week</b>` : '<b>Your week</b>';
+  return [`${title} ${fmtDate(cur.from)} — ${fmtDate(cur.to)}`, '', ...lines, '', `Total: <b>${cur.doneTotal} of ${cur.scheduledTotal}</b> (${curPct}%)`, cmp]
     .filter((l) => l !== undefined)
     .join('\n')
     .replace(/\n{3,}/g, '\n\n');
@@ -118,40 +101,52 @@ export function weeklyText(cur: WeekStats, prev: WeekStats, strict: boolean, own
 export function partnerText(botUsername: string, code: string, currentName: string | null): string {
   const link = `https://t.me/${botUsername}?start=partner_${code}`;
   return [
-    '<b>Партнёр по ответственности</b>',
-    currentName ? `Сейчас привязан: <b>${escapeHtml(currentName)}</b>. Новая ссылка заменит его.` : 'Пока никого нет.',
+    '<b>Accountability partner</b>',
+    currentName ? `Currently linked: <b>${escapeHtml(currentName)}</b>. A new link will replace them.` : 'Nobody yet.',
     '',
-    `Отправь другу ссылку — как только он её откроет, ему будут приходить твои недельные итоги и пропуски:`,
+    'Send this link to a friend — once they open it, they will receive your weekly summary and missed days:',
     link,
     '',
-    `Или добавь меня в группу/канал и напиши там: <code>/partner ${code}</code>`,
+    `Or add me to a group and post there: <code>/partner ${code}</code>`,
     '',
-    'Отвязать: /partner off. Уведомления о пропусках можно выключить в настройках.',
+    'Unlink: /partner off. Missed-day notices can be switched off in Settings.',
   ].join('\n');
 }
 
 export function partnerLinkedText(ownerName: string): string {
-  return `🤝 Ты теперь партнёр по ответственности для <b>${escapeHtml(ownerName)}</b>.\n\nПо воскресеньям я буду присылать итоги недели, а если день пропущен — короткое уведомление. Твоя задача простая: спросить «как дела?» 🙂`;
+  return `You are now the accountability partner of <b>${escapeHtml(ownerName)}</b>.\n\nOn Sundays I will send you their weekly summary, and a short note whenever a day is missed. Your job is simple: ask how it is going.`;
 }
 
-export function missedText(ownerName: string, date: string, missed: Activity[], skipped: { activity: Activity; reason: string | null }[], strict: boolean): string {
+export function missedText(ownerName: string, date: string, missed: Activity[], skipped: { activity: Activity; reason: string | null }[]): string {
   const parts: string[] = [];
-  if (missed.length) {
-    const list = missed.map((a) => `${a.emoji} ${escapeHtml(a.name)}`).join('\n');
-    parts.push(`⚠️ <b>${escapeHtml(ownerName)}</b> вчера (${fmtDateRu(date)}) ${strict ? 'не подтвердил' : 'не сделал'}:\n\n${list}`);
-  }
+  if (missed.length) parts.push(`<b>${escapeHtml(ownerName)}</b> did not practise yesterday (${fmtDate(date)}).`);
   if (skipped.length) {
-    const list = skipped.map(({ activity, reason }) => `⏸ ${activity.emoji} ${escapeHtml(activity.name)}${reason ? ` — <i>${escapeHtml(reason)}</i>` : ''}`).join('\n');
-    parts.push(`${missed.length ? '' : `<b>${escapeHtml(ownerName)}</b> вчера (${fmtDateRu(date)}) `}осознанно пропустил:\n\n${list}`);
+    const list = skipped.map(({ reason }) => (reason ? `— <i>${escapeHtml(reason)}</i>` : '— no reason given')).join('\n');
+    parts.push(`${missed.length ? '' : `<b>${escapeHtml(ownerName)}</b> `}skipped on purpose yesterday (${fmtDate(date)}):\n${list}`);
   }
-  parts.push(missed.length ? 'Может, стоит спросить, что случилось?' : 'Хотя бы честно 🙂');
+  parts.push(missed.length ? 'Perhaps worth asking what happened.' : 'At least it was an honest skip.');
   return parts.join('\n\n');
 }
 
 export function missedSelfText(date: string, missed: Activity[], skipped: { activity: Activity; reason: string | null }[], partnerName: string | null): string {
-  const list = [
-    ...missed.map((a) => `${a.emoji} ${escapeHtml(a.name)}`),
-    ...skipped.map(({ activity, reason }) => `⏸ ${activity.emoji} ${escapeHtml(activity.name)}${reason ? ` — <i>${escapeHtml(reason)}</i>` : ''}`),
-  ].join('\n');
-  return `Вчера (${fmtDateRu(date)}) не засчитано:\n\n${list}${partnerName ? `\n\n${escapeHtml(partnerName)} уже знает 😉 Сегодня — новый день.` : '\n\nСегодня — новый день.'}`;
+  const what = missed.length ? 'No practice logged' : `Skipped${skipped[0]?.reason ? ` — <i>${escapeHtml(skipped[0].reason)}</i>` : ''}`;
+  return `${what} yesterday (${fmtDate(date)}).${partnerName ? ` ${escapeHtml(partnerName)} has been told.` : ''} Today is a new day.`;
+}
+
+// ---------- vocabulary ----------
+
+export function wordLine(w: VocabCard): string {
+  return `<b>${escapeHtml(w.word)}</b> /${escapeHtml(w.ipa)}/ <i>${escapeHtml(w.pos)}</i>\n${escapeHtml(w.meaning)} — ${escapeHtml(w.ru)}\n<i>${escapeHtml(w.example)}</i>`;
+}
+
+export function wordsText(newWords: VocabCard[], dueCount: number): string {
+  if (!newWords.length && !dueCount) return 'No new words today and nothing to review. Set the daily number in Settings.';
+  const parts: string[] = [];
+  if (newWords.length) parts.push(`<b>Today’s words</b>\n\n${newWords.map(wordLine).join('\n\n')}`);
+  if (dueCount) parts.push(`<b>${dueCount} word${dueCount === 1 ? '' : 's'} to review</b> — the quiz follows. Tap the meaning that fits.`);
+  return parts.join('\n\n');
+}
+
+export function quizText(w: VocabCard, index: number, total: number): string {
+  return `Review ${index} of ${total}\n\n<b>${escapeHtml(w.word)}</b> /${escapeHtml(w.ipa)}/`;
 }

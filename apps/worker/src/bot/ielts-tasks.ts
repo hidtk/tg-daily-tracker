@@ -1,8 +1,9 @@
 /**
  * Built-in bank of IELTS practice tasks (no AI needed).
- * Weekly rhythm: Mon Writing T2 · Tue Speaking · Wed Reading · Thu Vocabulary · Fri Writing T1 · Sat Listening · Sun Grammar/Review
+ * Weekly rhythm: Mon Writing T2 · Tue Speaking · Wed Reading · Thu Listening · Fri Writing T1 · Sat Grammar · Sun Review.
+ * Vocabulary is handled separately by the daily words feature.
  */
-export type TaskKind = 'writing2' | 'speaking' | 'reading' | 'vocab' | 'writing1' | 'listening' | 'grammar';
+export type TaskKind = 'writing2' | 'speaking' | 'reading' | 'writing1' | 'listening' | 'grammar';
 
 export interface IeltsTask {
   id: string;
@@ -13,20 +14,19 @@ export interface IeltsTask {
 }
 
 export const KIND_LABEL: Record<TaskKind, string> = {
-  writing2: '✍️ Writing Task 2',
-  speaking: '🗣 Speaking Part 2',
-  reading: '📖 Reading',
-  vocab: '🧠 Vocabulary',
-  writing1: '📊 Writing Task 1',
-  listening: '🎧 Listening',
-  grammar: '🔧 Grammar',
+  writing2: 'Writing Task 2',
+  speaking: 'Speaking Part 2',
+  reading: 'Reading',
+  writing1: 'Writing Task 1',
+  listening: 'Listening',
+  grammar: 'Grammar',
 };
 
 /** Weekday (0 = Monday) → task kind */
-export const WEEKDAY_KIND: TaskKind[] = ['writing2', 'speaking', 'reading', 'vocab', 'writing1', 'listening', 'grammar'];
+export const WEEKDAY_KIND: TaskKind[] = ['writing2', 'speaking', 'reading', 'listening', 'writing1', 'grammar', 'grammar'];
 
-const W2_FOOTER = '\n\n<i>Минимум 250 слов, 40 минут. План: позиция → 2 абзаца с аргументом + примером → вывод. Пришли текст сюда — засчитаю как подтверждение.</i>';
-const SP_FOOTER = '\n\n<i>1 минута на подготовку, 2 минуты говорить. Запиши голосовое и пришли сюда — засчитаю как подтверждение.</i>';
+const W2_FOOTER = '\n\n<i>At least 250 words, 40 minutes. Plan: position → two body paragraphs, each with one argument and one example → conclusion.</i>';
+const SP_FOOTER = '\n\n<i>One minute to prepare, two minutes to speak. Record yourself and listen back once.</i>';
 
 export const TASKS: IeltsTask[] = [
   // ---------- Writing Task 2 ----------
@@ -75,77 +75,59 @@ export const TASKS: IeltsTask[] = [
 
   // ---------- Reading ----------
   { id: 'rd-1', kind: 'reading', minutes: 20, title: 'True / False / Not Given',
-    body: 'Открой любой текст из Cambridge IELTS (или статью на 600–800 слов с bbc.com/future) и <b>сам придумай 5 утверждений</b>: 2 True, 2 False, 1 Not Given. Затем ответь на них через 10 минут, не глядя в заметки.\n\n<i>Ключ к NG: утверждение не противоречит тексту, но текст его и не подтверждает. Засеки 20 минут.</i>' },
-  { id: 'rd-2', kind: 'reading', minutes: 20, title: 'Skimming за 3 минуты',
-    body: 'Возьми один Reading passage (Cambridge IELTS 15–19, любой тест). Дай себе <b>3 минуты</b>, чтобы прочитать первое предложение каждого абзаца и написать по 2–3 слова о теме каждого. Потом сделай Matching Headings — сравни с ключом.\n\n<i>Цель: научиться видеть структуру текста до вопросов.</i>' },
-  { id: 'rd-3', kind: 'reading', minutes: 20, title: 'Полный passage на время',
-    body: 'Один Reading passage с 13–14 вопросами <b>строго за 20 минут</b>. Проверь по ключу, выпиши каждое неверное: тип вопроса + почему ошибся (не то слово-парафраз? не дочитал? NG/False?).\n\n<i>Именно этот список ошибок — твой учебный план на неделю.</i>' },
-  { id: 'rd-4', kind: 'reading', minutes: 20, title: 'Парафраз-охота',
-    body: 'Возьми 10 вопросов из любого Reading и <b>для каждого найди в тексте синоним/парафраз ключевых слов</b> (например, «reduce» → «cut down», «children» → «young people»). Выпиши пары.\n\n<i>IELTS почти никогда не повторяет слова из вопроса в тексте.</i>' },
+    body: 'Open any Cambridge IELTS passage (or a 600–800-word article from bbc.com/future) and <b>write five statements of your own</b>: two True, two False, one Not Given. Ten minutes later answer them without looking at your notes.\n\n<i>The key to Not Given: the statement neither contradicts the text nor is confirmed by it. Set a 20-minute timer.</i>' },
+  { id: 'rd-2', kind: 'reading', minutes: 20, title: 'Three-minute skim',
+    body: 'Take one Reading passage (Cambridge IELTS 15–19, any test). Give yourself <b>three minutes</b> to read the first sentence of every paragraph and jot down two or three words on what each is about. Then do the Matching Headings task and compare with the key.\n\n<i>Goal: see the structure of the text before you see the questions.</i>' },
+  { id: 'rd-3', kind: 'reading', minutes: 20, title: 'Full passage against the clock',
+    body: 'One Reading passage with 13–14 questions <b>in exactly 20 minutes</b>. Check against the key and write down every wrong answer: question type + why you missed it (paraphrase not spotted? did not read to the end? NG vs False?).\n\n<i>That list of mistakes is your study plan for the week.</i>' },
+  { id: 'rd-4', kind: 'reading', minutes: 20, title: 'Paraphrase hunt',
+    body: 'Take ten questions from any Reading and <b>find the synonym or paraphrase of each key word in the text</b> (e.g. “reduce” → “cut down”, “children” → “young people”). Write the pairs down.\n\n<i>IELTS almost never repeats the words of the question in the passage.</i>' },
   { id: 'rd-5', kind: 'reading', minutes: 20, title: 'Summary completion',
-    body: 'Найди задание типа Summary Completion (из списка слов или из текста). Сначала прочитай summary и <b>предскажи часть речи</b> для каждого пропуска (существительное? глагол?). Потом ищи в тексте. 15 минут + разбор.' },
-  { id: 'rd-6', kind: 'reading', minutes: 20, title: 'Чтение вслух и пересказ',
-    body: 'Прочитай статью 500+ слов (The Guardian / BBC / National Geographic). Затем <b>перескажи вслух за 1 минуту</b> — что за проблема, что нашли, что советуют. Запиши 8 незнакомых слов с контекстом.' },
-
-  // ---------- Vocabulary ----------
-  { id: 'vc-1', kind: 'vocab', minutes: 15, title: 'Environment',
-    body: '<b>Слова дня — Environment</b>\n• <b>carbon footprint</b> — углеродный след\n• <b>renewable energy</b> — возобновляемая энергия\n• <b>deplete</b> (resources) — истощать\n• <b>biodiversity</b> — биоразнообразие\n• <b>sustainable</b> — устойчивый, не истощающий ресурсы\n• <b>deforestation</b> — вырубка лесов\n• <b>emissions</b> — выбросы\n• <b>eco-friendly</b> — экологичный\n\n<i>Составь 5 предложений с этими словами о своём городе. Пришли — засчитаю.</i>' },
-  { id: 'vc-2', kind: 'vocab', minutes: 15, title: 'Education',
-    body: '<b>Слова дня — Education</b>\n• <b>curriculum</b> — учебная программа\n• <b>vocational training</b> — профессиональное обучение\n• <b>rote learning</b> — зубрёжка\n• <b>critical thinking</b> — критическое мышление\n• <b>tuition fees</b> — плата за обучение\n• <b>peer pressure</b> — давление сверстников\n• <b>lifelong learning</b> — обучение на протяжении жизни\n• <b>drop out</b> — бросить учёбу\n\n<i>Напиши абзац (80–100 слов): что бы ты изменил в школьном образовании. Пришли — засчитаю.</i>' },
-  { id: 'vc-3', kind: 'vocab', minutes: 15, title: 'Technology',
-    body: '<b>Слова дня — Technology</b>\n• <b>cutting-edge</b> — передовой\n• <b>obsolete</b> — устаревший\n• <b>automation</b> — автоматизация\n• <b>digital divide</b> — цифровое неравенство\n• <b>breakthrough</b> — прорыв\n• <b>privacy concerns</b> — опасения о приватности\n• <b>user-friendly</b> — удобный для пользователя\n• <b>reliance on</b> — зависимость от\n\n<i>5 предложений про ИИ с этими словами. Пришли — засчитаю.</i>' },
-  { id: 'vc-4', kind: 'vocab', minutes: 15, title: 'Health',
-    body: '<b>Слова дня — Health</b>\n• <b>sedentary lifestyle</b> — сидячий образ жизни\n• <b>obesity</b> — ожирение\n• <b>preventive measures</b> — профилактические меры\n• <b>well-being</b> — благополучие\n• <b>chronic illness</b> — хроническое заболевание\n• <b>balanced diet</b> — сбалансированное питание\n• <b>burnout</b> — выгорание\n• <b>healthcare system</b> — система здравоохранения\n\n<i>Speaking Part 3: «Should governments tax unhealthy food?» — ответь голосовым на 1 минуту с этими словами.</i>' },
-  { id: 'vc-5', kind: 'vocab', minutes: 15, title: 'Work',
-    body: '<b>Слова дня — Work</b>\n• <b>job satisfaction</b> — удовлетворённость работой\n• <b>work-life balance</b> — баланс работы и жизни\n• <b>remote work</b> — удалённая работа\n• <b>promotion</b> — повышение\n• <b>redundancy</b> — сокращение\n• <b>freelance</b> — фриланс\n• <b>demanding</b> (job) — требовательная\n• <b>career prospects</b> — карьерные перспективы\n\n<i>Абзац 80–100 слов: работа мечты. Пришли — засчитаю.</i>' },
-  { id: 'vc-6', kind: 'vocab', minutes: 15, title: 'Linking words (band 7+)',
-    body: '<b>Связки для эссе</b>\n• <b>Admittedly, …</b> — надо признать\n• <b>Nevertheless</b> — тем не менее\n• <b>Consequently</b> — вследствие этого\n• <b>In contrast</b> — напротив\n• <b>To illustrate</b> — чтобы проиллюстрировать\n• <b>Whereas</b> — тогда как\n• <b>Provided that</b> — при условии, что\n• <b>On balance</b> — в целом / взвесив всё\n\n<i>Перепиши любой свой старый абзац эссе, вставив 5 из них. Пришли — засчитаю.</i>' },
-  { id: 'vc-7', kind: 'vocab', minutes: 15, title: 'City life',
-    body: '<b>Слова дня — City life</b>\n• <b>urban sprawl</b> — разрастание города\n• <b>congestion</b> — заторы\n• <b>infrastructure</b> — инфраструктура\n• <b>affordable housing</b> — доступное жильё\n• <b>commute</b> — ездить на работу\n• <b>pedestrian zone</b> — пешеходная зона\n• <b>overcrowded</b> — переполненный\n• <b>amenities</b> — удобства, инфраструктура услуг\n\n<i>Speaking Part 1: «Do you like living in your city?» — 5 предложений с этими словами.</i>' },
-  { id: 'vc-8', kind: 'vocab', minutes: 15, title: 'Describing trends (Task 1)',
-    body: '<b>Глаголы и наречия для графиков</b>\n• <b>soar / plummet</b> — резко вырасти / резко упасть\n• <b>rise steadily</b> — расти стабильно\n• <b>fluctuate</b> — колебаться\n• <b>level off / plateau</b> — выйти на плато\n• <b>peak at</b> — достичь пика на уровне\n• <b>a slight dip</b> — небольшое снижение\n• <b>account for</b> — составлять (долю)\n• <b>roughly / approximately</b> — примерно\n\n<i>Опиши за 5 предложений, как менялось твоё время на английский за последние 4 недели (вкладка IELTS).</i>' },
+    body: 'Find a Summary Completion task (from a word list or from the text). First read the summary and <b>predict the part of speech</b> for every gap (noun? verb?). Only then search the passage. 15 minutes plus review.' },
+  { id: 'rd-6', kind: 'reading', minutes: 20, title: 'Read aloud and retell',
+    body: 'Read a 500+ word article (The Guardian, BBC, National Geographic). Then <b>retell it aloud in one minute</b>: the problem, the finding, the recommendation. Note eight new words with their context.' },
 
   // ---------- Writing Task 1 ----------
   { id: 'w1-1', kind: 'writing1', minutes: 20, title: 'Line graph',
-    body: '<b>Данные</b> (нарисуй в уме или на бумаге): доля людей, пользующихся интернетом, в трёх странах, 2000–2020.\n• Country A: 20% → 45% → 85% → 92% → 95%\n• Country B: 5% → 15% → 40% → 70% → 80%\n• Country C: 50% → 60% → 65% → 66% → 67%\n(значения за 2000, 2005, 2010, 2015, 2020)\n\n<b>Summarise the information by selecting and reporting the main features, and make comparisons where relevant.</b>\n\n<i>150+ слов, 20 минут. Overview обязателен (2 главные тенденции). Пришли текст — засчитаю.</i>' },
+    body: '<b>Data</b> (sketch it on paper): share of people using the internet in three countries, 2000–2020.\n• Country A: 20% → 45% → 85% → 92% → 95%\n• Country B: 5% → 15% → 40% → 70% → 80%\n• Country C: 50% → 60% → 65% → 66% → 67%\n(values for 2000, 2005, 2010, 2015, 2020)\n\n<b>Summarise the information by selecting and reporting the main features, and make comparisons where relevant.</b>\n\n<i>150+ words, 20 minutes. The overview is compulsory: two main trends.</i>' },
   { id: 'w1-2', kind: 'writing1', minutes: 20, title: 'Bar chart',
-    body: '<b>Данные</b>: среднее число часов в неделю на домашние обязанности, мужчины и женщины, 4 страны.\n• Sweden: M 14, F 17\n• Japan: M 4, F 22\n• USA: M 10, F 18\n• Brazil: M 6, F 24\n\n<b>Summarise the information by selecting and reporting the main features, and make comparisons where relevant.</b>\n\n<i>150+ слов, 20 минут. Не описывай каждую цифру — сгруппируй. Пришли — засчитаю.</i>' },
+    body: '<b>Data</b>: average hours per week spent on housework, men and women, four countries.\n• Sweden: M 14, F 17\n• Japan: M 4, F 22\n• USA: M 10, F 18\n• Brazil: M 6, F 24\n\n<b>Summarise the information by selecting and reporting the main features, and make comparisons where relevant.</b>\n\n<i>150+ words, 20 minutes. Do not describe every figure — group them.</i>' },
   { id: 'w1-3', kind: 'writing1', minutes: 20, title: 'Process',
-    body: '<b>Процесс</b>: производство шоколада.\ncocoa pods harvested → beans removed and fermented (5 days) → dried in the sun → roasted → shells removed → ground into paste → paste pressed/mixed with sugar and milk → moulded → packaged.\n\n<b>Summarise the process by selecting and reporting the main features.</b>\n\n<i>Пассивный залог, последовательность (Firstly / Once … / Subsequently / The final stage). 150+ слов.</i>' },
+    body: '<b>Process</b>: making chocolate.\ncocoa pods harvested → beans removed and fermented (5 days) → dried in the sun → roasted → shells removed → ground into paste → paste pressed/mixed with sugar and milk → moulded → packaged.\n\n<b>Summarise the process by selecting and reporting the main features.</b>\n\n<i>Passive voice and sequencing (Firstly / Once … / Subsequently / The final stage). 150+ words.</i>' },
   { id: 'w1-4', kind: 'writing1', minutes: 20, title: 'Pie charts',
-    body: '<b>Данные</b>: источники электроэнергии в стране X, 2000 vs 2020.\n2000: coal 55%, gas 20%, nuclear 15%, hydro 8%, wind/solar 2%\n2020: coal 20%, gas 30%, nuclear 12%, hydro 10%, wind/solar 28%\n\n<b>Summarise the information and make comparisons where relevant.</b>\n\n<i>150+ слов. Главное: что выросло, что упало, что почти не изменилось. Пришли — засчитаю.</i>' },
+    body: '<b>Data</b>: sources of electricity in country X, 2000 vs 2020.\n2000: coal 55%, gas 20%, nuclear 15%, hydro 8%, wind/solar 2%\n2020: coal 20%, gas 30%, nuclear 12%, hydro 10%, wind/solar 28%\n\n<b>Summarise the information and make comparisons where relevant.</b>\n\n<i>150+ words. What rose, what fell, what barely changed.</i>' },
   { id: 'w1-5', kind: 'writing1', minutes: 20, title: 'Table',
-    body: '<b>Таблица</b>: число иностранных студентов (тыс.) в 4 странах.\n• UK: 2010 — 400, 2015 — 430, 2020 — 550\n• Australia: 2010 — 330, 2015 — 300, 2020 — 500\n• Canada: 2010 — 100, 2015 — 220, 2020 — 530\n• Germany: 2010 — 180, 2015 — 230, 2020 — 320\n\n<b>Summarise the information by selecting and reporting the main features, and make comparisons where relevant.</b>\n\n<i>150+ слов. Обрати внимание на Canada — самый быстрый рост.</i>' },
+    body: '<b>Table</b>: international students (thousands) in four countries.\n• UK: 2010 — 400, 2015 — 430, 2020 — 550\n• Australia: 2010 — 330, 2015 — 300, 2020 — 500\n• Canada: 2010 — 100, 2015 — 220, 2020 — 530\n• Germany: 2010 — 180, 2015 — 230, 2020 — 320\n\n<b>Summarise the information by selecting and reporting the main features, and make comparisons where relevant.</b>\n\n<i>150+ words. Note Canada — the fastest growth.</i>' },
   { id: 'w1-6', kind: 'writing1', minutes: 20, title: 'Map',
-    body: '<b>Карта</b> (представь): деревня в 1990 и сейчас.\n1990: главная улица с магазинами, ферма на востоке, лес на севере, школа в центре, река на западе.\nСейчас: ферма заменена жилым районом, часть леса вырублена под парковку и супермаркет, добавлен мост через реку, школа расширена, магазины превращены в кафе.\n\n<b>Summarise the changes.</b>\n\n<i>Слова: was converted into, was replaced by, was constructed, expanded, to the north of. 150+ слов.</i>' },
+    body: '<b>Map</b> (imagine it): a village in 1990 and today.\n1990: a high street with shops, a farm to the east, woodland to the north, a school in the centre, a river to the west.\nToday: the farm replaced by housing, part of the woodland cleared for a car park and a supermarket, a bridge added across the river, the school extended, the shops turned into cafés.\n\n<b>Summarise the changes.</b>\n\n<i>Useful: was converted into, was replaced by, was constructed, expanded, to the north of. 150+ words.</i>' },
 
   // ---------- Listening ----------
-  { id: 'ls-1', kind: 'listening', minutes: 30, title: 'Section 1 — цифры и имена',
-    body: 'Сделай <b>Section 1</b> любого теста Cambridge IELTS (диалог, форма). Перед прослушиванием <b>предскажи тип ответа</b> для каждого пропуска (число? имя? дата?). После проверки перепиши все spelling-ошибки 3 раза.\n\n<i>Бесплатно: ielts.org → Sample test questions, или IELTS Liz / British Council на YouTube.</i>' },
-  { id: 'ls-2', kind: 'listening', minutes: 30, title: 'Section 3 — академическая беседа',
-    body: 'Сделай <b>Section 3</b> (2–3 студента обсуждают проект). Слушай один раз как на экзамене. Потом второй раз со скриптом: <b>подчеркни, где говорящий меняет мнение</b> («actually», «on second thought», «I\'d rather») — это ловушки для multiple choice.' },
-  { id: 'ls-3', kind: 'listening', minutes: 30, title: 'Диктант 5 минут',
-    body: 'Возьми любую 2-минутную запись (TED-Ed, BBC 6 Minute English). Слушай по предложению и <b>записывай дословно</b>. Сравни со скриптом. Выпиши, какие звуки/связки ты не расслышал (например, «would\'ve», «gonna»).' },
-  { id: 'ls-4', kind: 'listening', minutes: 30, title: 'Section 4 — лекция',
-    body: 'Сделай <b>Section 4</b> (монолог-лекция, 10 вопросов, без паузы). За 1 минуту до старта <b>прочитай все вопросы и подчеркни ключевые слова</b>. После — разбери: какие ответы ты «потерял», потому что отвлёкся на предыдущий вопрос.' },
-  { id: 'ls-5', kind: 'listening', minutes: 30, title: 'Подкаст на скорости 1.25',
-    body: '20 минут подкаста на английском (Huberman Lab, The Diary of a CEO, BBC Global News) на скорости <b>1.25×</b>. Потом перескажи вслух 5 главных пунктов за 1 минуту. Экзаменационная запись покажется медленной.' },
+  { id: 'ls-1', kind: 'listening', minutes: 30, title: 'Section 1 — numbers and names',
+    body: 'Do <b>Section 1</b> of any Cambridge IELTS test (a dialogue, a form). Before listening, <b>predict the answer type</b> for every gap (a number? a name? a date?). After checking, write out every spelling mistake three times.\n\n<i>Free: ielts.org → Sample test questions, or IELTS Liz / British Council on YouTube.</i>' },
+  { id: 'ls-2', kind: 'listening', minutes: 30, title: 'Section 3 — academic discussion',
+    body: 'Do <b>Section 3</b> (two or three students discussing a project). Listen once, exam conditions. Then a second time with the script: <b>underline where a speaker changes their mind</b> (“actually”, “on second thought”, “I\'d rather”) — these are the multiple-choice traps.' },
+  { id: 'ls-3', kind: 'listening', minutes: 30, title: 'Five-minute dictation',
+    body: 'Take any two-minute recording (TED-Ed, BBC 6 Minute English). Listen sentence by sentence and <b>write it down word for word</b>. Compare with the script. Note which sounds and contractions you missed (“would\'ve”, “gonna”).' },
+  { id: 'ls-4', kind: 'listening', minutes: 30, title: 'Section 4 — lecture',
+    body: 'Do <b>Section 4</b> (a monologue, ten questions, no pause). In the minute before it starts, <b>read all the questions and underline the key words</b>. Afterwards work out which answers you lost because you were still on the previous question.' },
+  { id: 'ls-5', kind: 'listening', minutes: 30, title: 'Podcast at 1.25×',
+    body: 'Twenty minutes of an English podcast (Huberman Lab, The Diary of a CEO, BBC Global News) at <b>1.25× speed</b>. Then retell the five main points aloud in one minute. The exam recording will feel slow.' },
   { id: 'ls-6', kind: 'listening', minutes: 30, title: 'Map labelling',
-    body: 'Найди задание <b>Map/Plan labelling</b> (Section 2). Перед прослушиванием разбери карту: где север, где вход, где уже подписано. Слушай направления: «opposite», «adjacent to», «at the far end», «just past».' },
+    body: 'Find a <b>Map/Plan labelling</b> task (Section 2). Before listening, study the map: where is north, where is the entrance, what is already labelled. Listen for directions: “opposite”, “adjacent to”, “at the far end”, “just past”.' },
 
   // ---------- Grammar / review ----------
-  { id: 'gr-1', kind: 'grammar', minutes: 20, title: 'Условные предложения',
-    body: 'Напиши по 3 предложения на каждый тип: <b>1st conditional</b> (If governments invest…, …will…), <b>2nd</b> (If I were…, I would…), <b>3rd</b> (If people had…, they would have…). Тема — образование. Пришли — засчитаю.\n\n<i>В эссе 2nd conditional — хороший способ показать сложную грамматику.</i>' },
+  { id: 'gr-1', kind: 'grammar', minutes: 20, title: 'Conditionals',
+    body: 'Write three sentences of each type: <b>1st conditional</b> (If governments invest…, …will…), <b>2nd</b> (If I were…, I would…), <b>3rd</b> (If people had…, they would have…). Topic: education.\n\n<i>In an essay the 2nd conditional is an easy way to show complex grammar.</i>' },
   { id: 'gr-2', kind: 'grammar', minutes: 20, title: 'Relative clauses',
-    body: 'Соедини пары простых предложений в одно с <b>which / who / where / whose</b> — 8 штук. Пример: «Cities are growing. They face housing problems.» → «Cities which are growing rapidly face housing problems.» Пришли — засчитаю.' },
+    body: 'Join eight pairs of simple sentences into one using <b>which / who / where / whose</b>. Example: “Cities are growing. They face housing problems.” → “Cities which are growing rapidly face housing problems.”' },
   { id: 'gr-3', kind: 'grammar', minutes: 20, title: 'Passive voice (Task 1)',
-    body: 'Опиши приготовление кофе в 8 шагов <b>только в пассиве</b>: beans are roasted, then ground… Затем перепиши свой старый Task 1 process, заменив активные формы на пассивные.' },
-  { id: 'gr-4', kind: 'grammar', minutes: 20, title: 'Articles a/the/—',
-    body: 'Возьми свой любой абзац эссе и <b>проверь каждый артикль</b>: исчисляемое или нет? упоминалось ли раньше? общее понятие (education) или конкретное (the education system in Russia)? Исправь, пришли «до/после».' },
+    body: 'Describe making coffee in eight steps <b>using only the passive</b>: beans are roasted, then ground… Then rewrite one of your old Task 1 process answers, turning active forms into passive ones.' },
+  { id: 'gr-4', kind: 'grammar', minutes: 20, title: 'Articles a / the / —',
+    body: 'Take any paragraph of your own essay and <b>check every article</b>: countable or not? mentioned before? general (education) or specific (the education system in Russia)? Correct it and keep the before/after.' },
   { id: 'gr-5', kind: 'grammar', minutes: 20, title: 'Complex sentences',
-    body: 'Перепиши 6 простых предложений в сложные с помощью <b>although / despite / whereas / unless / as long as / while</b>. Пример: «Cars are convenient. They pollute.» → «Although cars are convenient, they pollute the air.» Пришли — засчитаю.' },
-  { id: 'gr-6', kind: 'grammar', minutes: 20, title: 'Обзор недели',
-    body: 'Сегодня без нового: открой вкладку <b>IELTS</b>, посмотри минуты по навыкам за неделю и <b>выбери самый слабый навык</b>. Найди свои ошибки этой недели (Reading-разбор, Listening-диктант) и перепиши правильные варианты в тетрадь. 20 минут. Пришли фото тетради — засчитаю.' },
+    body: 'Rewrite six simple sentences as complex ones using <b>although / despite / whereas / unless / as long as / while</b>. Example: “Cars are convenient. They pollute.” → “Although cars are convenient, they pollute the air.”' },
+  { id: 'gr-6', kind: 'grammar', minutes: 20, title: 'Weekly review',
+    body: 'Nothing new today: open <b>Progress</b>, look at your minutes by skill this week and <b>pick the weakest skill</b>. Collect this week\'s mistakes (Reading review, Listening dictation) and write the corrected versions into your notebook. 20 minutes.' },
 ];
 
 const byKind = new Map<TaskKind, IeltsTask[]>();
@@ -164,9 +146,12 @@ function hash(s: string): number {
 export function taskForDay(tgId: number, date: string, weekdayMon0: number, weekIndex: number): IeltsTask {
   const kind = WEEKDAY_KIND[weekdayMon0];
   const list = byKind.get(kind)!;
-  const idx = (weekIndex + hash(String(tgId))) % list.length;
+  // Sunday is the review day.
+  if (weekdayMon0 === 6) return list.find((t) => t.id === 'gr-6') ?? list[0];
+  const pool = kind === 'grammar' ? list.filter((t) => t.id !== 'gr-6') : list;
+  const idx = (weekIndex + hash(String(tgId))) % pool.length;
   void date;
-  return list[idx];
+  return pool[idx];
 }
 
 export function randomTask(kind?: TaskKind, excludeId?: string): IeltsTask {
@@ -179,20 +164,21 @@ export function taskById(id: string): IeltsTask | undefined {
   return TASKS.find((t) => t.id === id);
 }
 
-export function formatTask(t: IeltsTask, header = 'Задание дня'): string {
-  return `📚 <b>${header} · ${KIND_LABEL[t.kind]}</b>\n<b>${t.title}</b> · ~${t.minutes} мин\n\n${t.body}`;
+export function formatTask(t: IeltsTask, header = 'Today’s task'): string {
+  return `<b>${header} · ${KIND_LABEL[t.kind]}</b>\n<b>${t.title}</b> · about ${t.minutes} min\n\n${t.body}`;
 }
 
 export function taskKeyboard(currentId: string) {
   return [
     [
-      { text: '🔄 Другое задание', callback_data: `task:any:${currentId}` },
-      { text: '✍️ Writing', callback_data: `task:writing2:${currentId}` },
+      { text: 'Done ✓', callback_data: 'done' },
+      { text: 'Another task', callback_data: `task:any:${currentId}` },
+      { text: 'Writing', callback_data: `task:writing2:${currentId}` },
     ],
     [
-      { text: '🗣 Speaking', callback_data: `task:speaking:${currentId}` },
-      { text: '🧠 Vocab', callback_data: `task:vocab:${currentId}` },
-      { text: '📖 Reading', callback_data: `task:reading:${currentId}` },
+      { text: 'Speaking', callback_data: `task:speaking:${currentId}` },
+      { text: 'Reading', callback_data: `task:reading:${currentId}` },
+      { text: 'Listening', callback_data: `task:listening:${currentId}` },
     ],
   ];
 }

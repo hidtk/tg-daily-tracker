@@ -85,7 +85,7 @@ export class Bot {
     return this.call('setWebhook', { url, secret_token: secretToken, allowed_updates: ['message', 'callback_query'] });
   }
 
-  setChatMenuButton(webAppUrl: string, text = 'Трекер') {
+  setChatMenuButton(webAppUrl: string, text = 'IELTS') {
     return this.call('setChatMenuButton', { menu_button: { type: 'web_app', text, web_app: { url: webAppUrl } } });
   }
 

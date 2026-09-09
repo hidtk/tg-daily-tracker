@@ -104,6 +104,8 @@ export const SettingsSchema = z.object({
   ielts_weekly_hours: z.number().min(0).max(80),
   /** send an IELTS practice task with the morning reminder */
   ielts_daily_task: z.boolean(),
+  /** new vocabulary words introduced each morning (0 = off) */
+  vocab_per_day: z.number().int().min(0).max(20),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const SettingsPutSchema = SettingsSchema.partial();
@@ -124,12 +126,13 @@ export const DEFAULT_SETTINGS: Settings = {
   weekly_time: '20:00',
   ai_endpoint: null,
   ai_key: null,
-  strict_mode: true,
+  strict_mode: false,
   partner_notify_missed: true,
   ielts_target: 7.0,
   ielts_exam_date: null,
   ielts_weekly_hours: 7,
   ielts_daily_task: true,
+  vocab_per_day: 5,
 };
 
 export const LessonSchema = z.object({
@@ -199,6 +202,8 @@ export interface TodayResponse {
   strict_mode: boolean;
   lessons_today: Lesson[];
   homeworks: Homework[];
+  exam_date: string | null;
+  target: number;
 }
 
 export interface StreakInfo {
@@ -384,9 +389,7 @@ export function computeStreak(
 // ---------- Default template ----------
 
 export const TEMPLATE_ACTIVITIES: ActivityInput[] = [
-  { name: 'English (IELTS)', emoji: '🇬🇧', color: '#3b82f6', schedule_type: 'daily', goal_text: 'IELTS 7.0', goal_date: null, kind: 'ielts' },
-  { name: 'Диплом', emoji: '🎓', color: '#a855f7', schedule_type: 'daily', goal_text: 'Защита диплома', goal_date: null },
-  { name: 'Спорт', emoji: '🏋️', color: '#22c55e', schedule_type: 'every_other_day', goal_text: null, goal_date: null },
+  { name: 'IELTS', emoji: '📖', color: '#1f1f1f', schedule_type: 'daily', goal_text: 'IELTS 7.0', goal_date: null, kind: 'ielts' },
 ];
 
 // ---------- Social-media minutes wallet ----------
@@ -519,3 +522,44 @@ export function creditForAttempt(opts: {
   earned = Math.min(earned, allowed);
   return { base, earned, halved, capped };
 }
+
+// ---------- Vocabulary ----------
+
+export * from './vocab';
+
+export interface VocabCard {
+  id: number;
+  word: string;
+  ipa: string;
+  pos: string;
+  meaning: string;
+  example: string;
+  ru: string;
+  /** 0 = just introduced; each successful review moves one step up REVIEW_INTERVALS */
+  stage: number;
+  introduced_on: string;
+  next_review: string;
+  reviews: number;
+  lapses: number;
+}
+
+export interface VocabResponse {
+  today: string;
+  per_day: number;
+  /** words introduced today (or to be introduced now) */
+  new_words: VocabCard[];
+  /** words whose review is due today or overdue */
+  due: VocabCard[];
+  /** totals */
+  learned: number; // introduced so far
+  mastered: number; // stage >= REVIEW_INTERVALS.length
+  total: number;
+  /** last 14 days: number of reviews done per day */
+  history: { date: string; reviews: number; correct: number }[];
+}
+
+export const VocabReviewSchema = z.object({
+  word_id: z.number().int().min(1),
+  ok: z.boolean(),
+});
+export type VocabReview = z.infer<typeof VocabReviewSchema>;

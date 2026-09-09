@@ -4,7 +4,7 @@ import { Repo, type UserRow } from '../lib/db';
 import { missedOn, skippedOn, weekStats } from '../lib/stats';
 import { Bot } from '../lib/telegram';
 import { eveningText, missedSelfText, missedText, morningText, weeklyText } from './messages';
-import { openAppKeyboard, webappUrl } from './webhook';
+import { openAppKeyboard, sendWords, webappUrl } from './webhook';
 import { taskKeyboard, taskForDay } from './ielts-tasks';
 import { composeMorning, lessonReminderText } from './homework';
 import { closeSession } from '../api/gate';
@@ -22,11 +22,11 @@ function inWindow(nowHHMM: string, targetHHMM: string): boolean {
   return diff >= 0 && diff < WINDOW_MIN;
 }
 
-export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number; missed: number; tasks: number; lessons: number }> {
+export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number; missed: number; tasks: number; lessons: number; words: number }> {
   const repo = new Repo(env.DB);
   const bot = new Bot(env.BOT_TOKEN);
   const kb = openAppKeyboard(webappUrl(env));
-  const counts = { morning: 0, evening: 0, weekly: 0, missed: 0, tasks: 0, lessons: 0 };
+  const counts = { morning: 0, evening: 0, weekly: 0, missed: 0, tasks: 0, lessons: 0, words: 0 };
   const users = await repo.allUsers();
   const lessonRows = await repo.allLessonRows();
 
@@ -47,6 +47,11 @@ export async function runCron(env: Env, now = new Date()): Promise<{ morning: nu
       }
       if (u.last_morning_sent !== today && inWindow(time, u.morning_time)) {
         if (await sendMorning(repo, bot, u, today, kb)) counts.morning++;
+      }
+      if ((u.vocab_per_day ?? 5) > 0 && u.last_vocab_sent !== today && inWindow(time, u.morning_time)) {
+        await repo.markSent(u.id, 'last_vocab_sent', today);
+        await sendWords(repo, u, u.tg_id, bot, today);
+        counts.words++;
       }
       if ((u.ielts_daily_task ?? 1) && u.last_task_sent !== today && inWindow(time, u.morning_time)) {
         if (await sendTask(repo, bot, u, today)) counts.tasks++;
@@ -101,11 +106,10 @@ async function sendMorning(repo: Repo, bot: Bot, u: UserRow, today: string, kb: 
 async function sendEvening(repo: Repo, bot: Bot, u: UserRow, today: string, kb: Kb): Promise<boolean> {
   await repo.markSent(u.id, 'last_evening_sent', today);
   const entries = await repo.entriesForDate(u.id, today);
-  const strict = !!u.strict_mode;
-  // Skip only if every scheduled activity already counts as done.
+  // Skip only if every scheduled activity is already done.
   const activities = await repo.listActivities(u.id);
-  if (missedOn(activities, entries, today, strict).length === 0) return false;
-  await bot.sendMessage(u.tg_id, eveningText(today, activities, entries, strict), kb);
+  if (missedOn(activities, entries, today, false).length === 0) return false;
+  await bot.sendMessage(u.tg_id, eveningText(today, activities, entries), kb);
   return true;
 }
 
@@ -113,11 +117,10 @@ async function sendWeekly(repo: Repo, bot: Bot, u: UserRow, today: string, kb: K
   await repo.markSent(u.id, 'last_weekly_sent', today);
   const activities = await repo.listActivities(u.id);
   if (!activities.length) return false;
-  const strict = !!u.strict_mode;
-  const cur = await weekStats(repo, u.id, activities, today, strict);
-  const prev = await weekStats(repo, u.id, activities, addDays(cur.from, -1), strict);
-  await bot.sendMessage(u.tg_id, weeklyText(cur, prev, strict), kb);
-  if (u.partner_chat_id) await bot.sendMessage(u.partner_chat_id, weeklyText(cur, prev, strict, u.first_name));
+  const cur = await weekStats(repo, u.id, activities, today, false);
+  const prev = await weekStats(repo, u.id, activities, addDays(cur.from, -1), false);
+  await bot.sendMessage(u.tg_id, weeklyText(cur, prev), kb);
+  if (u.partner_chat_id) await bot.sendMessage(u.partner_chat_id, weeklyText(cur, prev, u.first_name));
   return true;
 }
 
@@ -140,12 +143,11 @@ async function sendMissed(repo: Repo, bot: Bot, u: UserRow, today: string, kb: K
   if (u.created_at.slice(0, 10) > yesterday) return false;
   const activities = await repo.listActivities(u.id);
   const entries = await repo.entriesForDate(u.id, yesterday);
-  const strict = !!u.strict_mode;
-  const missed = missedOn(activities, entries, yesterday, strict);
-  const skipped = skippedOn(activities, entries, yesterday, strict);
+  const missed = missedOn(activities, entries, yesterday, false);
+  const skipped = skippedOn(activities, entries, yesterday, false);
   if (!missed.length && !skipped.length) return false;
   const partnerNotified = !!(u.partner_chat_id && u.partner_notify_missed);
-  if (partnerNotified) await bot.sendMessage(u.partner_chat_id!, missedText(u.first_name, yesterday, missed, skipped, strict));
+  if (partnerNotified) await bot.sendMessage(u.partner_chat_id!, missedText(u.first_name, yesterday, missed, skipped));
   await bot.sendMessage(u.tg_id, missedSelfText(yesterday, missed, skipped, partnerNotified ? u.partner_name : null), kb);
   return true;
 }

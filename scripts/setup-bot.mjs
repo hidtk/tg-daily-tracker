@@ -27,16 +27,17 @@ async function call(method, body) {
 }
 
 await call('setWebhook', { url: `${base}/bot/webhook`, secret_token: SESSION_SECRET, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true });
-await call('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Трекер', web_app: { url: base } } });
+await call('setChatMenuButton', { menu_button: { type: 'web_app', text: 'IELTS', web_app: { url: base } } });
 await call('setMyCommands', {
   commands: [
-    { command: 'app', description: 'Открыть трекер' },
-    { command: 'today', description: 'Статус за сегодня' },
-    { command: 'task', description: 'Задание по IELTS на сегодня' },
-    { command: 'hw', description: 'Домашка: список / добавить / сделал' },
-    { command: 'minutes', description: 'Минуты соцсетей в кошельке' },
-    { command: 'partner', description: 'Партнёр по ответственности' },
-    { command: 'help', description: 'Справка' },
+    { command: 'app', description: 'Open the trainer' },
+    { command: 'today', description: 'Today’s status' },
+    { command: 'task', description: 'Today’s practice task' },
+    { command: 'words', description: 'Today’s words and reviews' },
+    { command: 'hw', description: 'Homework: list / add / done' },
+    { command: 'minutes', description: 'Social-media minutes' },
+    { command: 'partner', description: 'Accountability partner' },
+    { command: 'help', description: 'Help' },
   ],
 });
 const info = await call('getWebhookInfo', {});
