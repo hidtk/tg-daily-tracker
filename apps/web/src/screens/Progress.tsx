@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { IeltsResponse, MockTest, Skill, StatsResponse, WeekStat } from '@tracker/shared';
+import type { AnalyticsResponse, IeltsResponse, MockTest, Skill, StatsResponse, WeekStat } from '@tracker/shared';
 import { SKILLS, SKILL_LABEL, ieltsOverall, todayInTz, weekdayMon0 } from '@tracker/shared';
 import { api, ApiError } from '../api';
 import { deviceTz, haptic } from '../tg';
@@ -32,6 +32,11 @@ export function Progress() {
   const [addMock, setAddMock] = useState(false);
   const [month, setMonth] = useState(todayInTz(deviceTz()).slice(0, 7));
   const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [an, setAn] = useState<AnalyticsResponse | null>(null);
+
+  useEffect(() => {
+    void api.analytics().then(setAn).catch(() => undefined);
+  }, []);
 
   const load = () => api.ielts().then(setData).catch((e: unknown) => setError(e instanceof ApiError ? e.message : t('Could not load')));
   useEffect(() => {
@@ -92,6 +97,24 @@ export function Progress() {
           </div>
         )}
       </Section>
+
+      {an && (
+        <Section label={t('Words and Reading')}>
+          <div className="tiles" style={{ marginBottom: 12 }}>
+            <div className="tile"><div className="v">{an.words.introduced}<span className="muted" style={{ fontSize: 16 }}> / {an.words.total}</span></div><div className="l">{t('words introduced')} · {an.words.mastered} {t('mastered')}</div></div>
+            <div className="tile"><div className="v">{an.words.sentences_total}</div><div className="l">{t('sentences written')}</div></div>
+            <div className="tile"><div className="v">{an.reading.tests}</div><div className="l">{t('reading tests')}</div></div>
+            <div className="tile"><div className="v">{an.reading.avg_band?.toFixed(1) ?? '—'}</div><div className="l">{t('average band')} · {t('best')} {an.reading.best_band?.toFixed(1) ?? '—'}</div></div>
+          </div>
+          <WeeklyChart weeks={an.weeks} />
+          <div className="legend-row">
+            <span><i style={{ background: 'var(--c1)' }} />{t('new words')}</span>
+            <span><i style={{ background: 'var(--c3)' }} />{t('recalled')}</span>
+            <span><i style={{ background: 'var(--c2)' }} />{t('sentences')}</span>
+            <span><i style={{ background: 'var(--c4)' }} />{t('reading band')}</span>
+          </div>
+        </Section>
+      )}
 
       <Section label={t('Mock tests')}>
         {data.mocks.length ? <BandChart mocks={data.mocks} target={data.target} /> : <p className="muted small">{t('Add your first mock test result and the band chart appears here.')}</p>}
@@ -176,6 +199,46 @@ function BandChart({ mocks, target }: { mocks: MockTest[]; target: number }) {
         {mocks.map((mk, i) => (mocks.length <= 8 || i % 2 === 0 || i === mocks.length - 1) && <text key={mk.id} x={xs[i]} y={H - 6} textAnchor="middle">{fmtShort(mk.date, lang)}</text>)}
       </svg>
     </>
+  );
+}
+
+function WeeklyChart({ weeks }: { weeks: AnalyticsResponse['weeks'] }) {
+  const { lang } = useLang();
+  const H = 150;
+  const pad = { l: 26, r: 26, t: 12, b: 20 };
+  const maxN = Math.max(10, ...weeks.map((w) => Math.max(w.words_introduced, w.recalled, w.sentences)));
+  const y = (v: number) => pad.t + (1 - v / maxN) * (H - pad.t - pad.b);
+  const yb = (b: number) => pad.t + (1 - (b - 4) / 5) * (H - pad.t - pad.b);
+  const bw = (W - pad.l - pad.r) / weeks.length;
+  const pts = weeks.map((w, i) => (w.reading_band == null ? null : ([pad.l + i * bw + bw / 2, yb(w.reading_band)] as const)));
+  const path = pts.filter(Boolean).map((p, i) => `${i ? 'L' : 'M'}${p![0]},${p![1]}`).join(' ');
+  return (
+    <svg className="viz" viewBox={`0 0 ${W} ${H}`}>
+      {[0, 0.5, 1].map((f) => (
+        <g key={f}>
+          <line className="grid" x1={pad.l} x2={W - pad.r} y1={y(maxN * f)} y2={y(maxN * f)} />
+          <text x={pad.l - 5} y={y(maxN * f) + 4} textAnchor="end">{Math.round(maxN * f)}</text>
+        </g>
+      ))}
+      {[5, 7, 9].map((b) => <text key={b} x={W - pad.r + 5} y={yb(b) + 4} style={{ fill: 'var(--c4)' }}>{b}</text>)}
+      {weeks.map((w, i) => {
+        const x0 = pad.l + i * bw + 3;
+        const bwid = Math.max(3, (bw - 8) / 3);
+        const bars = [
+          { v: w.words_introduced, c: 'var(--c1)' },
+          { v: w.recalled, c: 'var(--c3)' },
+          { v: w.sentences, c: 'var(--c2)' },
+        ];
+        return (
+          <g key={w.from}>
+            {bars.map((b, k) => b.v > 0 && <rect key={k} x={x0 + k * bwid} y={y(b.v)} width={bwid - 1} height={Math.max(0, y(0) - y(b.v))} fill={b.c} rx={1} />)}
+            {(i % 2 === 0 || i === weeks.length - 1) && <text x={pad.l + i * bw + bw / 2} y={H - 6} textAnchor="middle">{fmtShort(w.from, lang)}</text>}
+          </g>
+        );
+      })}
+      {path && <path d={path} fill="none" stroke="var(--c4)" strokeWidth={1.5} />}
+      {pts.map((p, i) => p && <circle key={i} cx={p[0]} cy={p[1]} r={3} fill="var(--c4)" />)}
+    </svg>
   );
 }
 

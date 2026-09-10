@@ -28,7 +28,7 @@ export interface ReadingTest {
   questions: ReadingQuestion[];
 }
 
-export const READING_TESTS: ReadingTest[] = [
+export const READING_TESTS_1: ReadingTest[] = [
   {
     id: 'rt-01',
     title: 'The Return of the Tram',
@@ -199,3 +199,16 @@ export function isCorrect(q: ReadingQuestion, given: string): boolean {
 
 export const TFNG_OPTIONS = ['TRUE', 'FALSE', 'NOT GIVEN'];
 export const MCQ_LETTERS = ['A', 'B', 'C', 'D'];
+
+import { READING_TESTS_2 } from './reading2';
+import { READING_TESTS_3 } from './reading3';
+import { READING_TESTS_4 } from './reading4';
+
+/** The full library, released to a user in batches of READING_BATCH_SIZE. */
+export const READING_TESTS: ReadingTest[] = [...READING_TESTS_1, ...READING_TESTS_2, ...READING_TESTS_3, ...READING_TESTS_4];
+export const READING_BATCH_SIZE = 4;
+
+/** Tests visible to a user who has unlocked `batch` batches. */
+export function readingLibrary(batch: number): ReadingTest[] {
+  return READING_TESTS.slice(0, Math.max(1, batch) * READING_BATCH_SIZE);
+}

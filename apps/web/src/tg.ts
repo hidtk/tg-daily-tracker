@@ -27,11 +27,23 @@ export const inTelegram = Boolean(tg.initData);
 function applyTheme() {
   const dark = inTelegram ? tg.colorScheme === 'dark' : window.matchMedia?.('(prefers-color-scheme: dark)').matches;
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  if (!inTelegram) {
+    // Outside Telegram (dev): emulate the default Telegram palette.
+    const r = document.documentElement.style;
+    const light = { bg: '#ffffff', text: '#000000', hint: '#8e8e93', link: '#2481cc', button: '#2481cc', buttonText: '#ffffff', secondary: '#efeff4', section: '#ffffff', separator: '#e5e5ea', subtitle: '#6d6d72', destructive: '#ff3b30' };
+    const darkP = { bg: '#000000', text: '#ffffff', hint: '#8e8e93', link: '#6ab3f3', button: '#5288c1', buttonText: '#ffffff', secondary: '#000000', section: '#1c1c1d', separator: '#2c2c2e', subtitle: '#98989e', destructive: '#ff453a' };
+    const p = dark ? darkP : light;
+    r.setProperty('--tg-theme-bg-color', p.bg); r.setProperty('--tg-theme-text-color', p.text); r.setProperty('--tg-theme-hint-color', p.hint);
+    r.setProperty('--tg-theme-link-color', p.link); r.setProperty('--tg-theme-button-color', p.button); r.setProperty('--tg-theme-button-text-color', p.buttonText);
+    r.setProperty('--tg-theme-secondary-bg-color', p.secondary); r.setProperty('--tg-theme-section-bg-color', p.section); r.setProperty('--tg-theme-section-separator-color', p.separator);
+    r.setProperty('--tg-theme-subtitle-text-color', p.subtitle); r.setProperty('--tg-theme-destructive-text-color', p.destructive);
+    return;
+  }
   try {
-    tg.setHeaderColor(dark ? '#161514' : '#f5f1ea');
-    tg.setBackgroundColor(dark ? '#161514' : '#f5f1ea');
+    tg.setHeaderColor('secondary_bg_color');
+    tg.setBackgroundColor('secondary_bg_color');
   } catch {
-    /* outside Telegram */
+    /* noop */
   }
 }
 

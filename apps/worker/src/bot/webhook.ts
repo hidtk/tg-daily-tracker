@@ -3,6 +3,7 @@ import type { Env } from '../env';
 import { Repo, walletSettings, type UserRow } from '../lib/db';
 import { Bot, escapeHtml, type InlineKeyboardButton } from '../lib/telegram';
 import { reviewWord, toCard, vocabToday } from '../lib/vocab';
+import { lockNow, lockState, unlock } from '../lib/lock';
 import { helpText, partnerLinkedText, partnerText, quizText, todayStatusText, welcomeText, wordsText } from './messages';
 import { formatTask, randomTask, taskForDay, taskKeyboard, type TaskKind } from './ielts-tasks';
 import { composeMorning, detectTags, homeworkKeyboard, homeworkListText, nextLessonDate } from './homework';
@@ -81,7 +82,10 @@ export async function sendWords(repo: Repo, user: UserRow, chatId: number, bot: 
   if (due.length) await sendNextQuiz(repo, user, chatId, bot, today);
 }
 
+let currentEnv: Env | null = null;
+
 export async function handleWebhook(req: Request, env: Env): Promise<Response> {
+  currentEnv = env;
   // Telegram sends this header when the webhook was set with secret_token.
   const secret = req.headers.get('x-telegram-bot-api-secret-token');
   if (secret !== env.SESSION_SECRET) return new Response('forbidden', { status: 403 });
@@ -181,6 +185,18 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
         ].join('\n'),
         kb,
       );
+    } else if (cmd === '/unlock') {
+      const n = Math.min(180, Math.max(1, Number(text.split(/\s+/)[1]) || 15));
+      const r = await unlock(repo, user, n);
+      if (r.ok) await bot.sendMessage(chatId, `Open for <b>${n} min</b>. ${Math.floor(await repo.balance(user.id))} min left in the wallet. /lock to close early (unused minutes come back).`);
+      else await bot.sendMessage(chatId, r.error === 'insufficient' ? `Not enough minutes — ${Math.floor(await repo.balance(user.id))} in the wallet. Write sentences (/words) or pass a Reading test.` : r.error === 'not_configured' ? 'The lock is not set up yet — Practice → Locked apps in the app.' : `NextDNS error: ${escapeHtml(r.error ?? '')}`, kb);
+    } else if (cmd === '/lock') {
+      const st = lockState(user, currentEnv!);
+      if (!st.configured) await bot.sendMessage(chatId, 'The lock is not set up yet — Practice → Locked apps in the app.', kb);
+      else {
+        const r = await lockNow(repo, user, true);
+        await bot.sendMessage(chatId, r.ok ? `Locked.${r.refunded ? ` ${r.refunded} unused min returned.` : ''}` : `NextDNS error: ${escapeHtml(r.error ?? '')}`);
+      }
     } else if (cmd === '/hw') {
       const rest = text.slice(3).trim();
       const hws = await repo.openHomeworks(user.id);

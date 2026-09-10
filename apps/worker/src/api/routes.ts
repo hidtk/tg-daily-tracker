@@ -14,6 +14,7 @@ import {
   isScheduledOn,
   todayInTz,
   READING_TESTS,
+  readingLibrary,
   ReadingSubmitSchema,
   WalletSettingsPutSchema,
   bandForTest,
@@ -22,6 +23,9 @@ import {
   type ReadingResult,
   type WalletResponse,
   VocabReviewSchema,
+  SentenceSubmitSchema,
+  LockConfigSchema,
+  UnlockSchema,
   type AuthResponse,
   type SettingsView,
   type StatsResponse,
@@ -34,6 +38,9 @@ import { issueToken, verifyToken } from '../lib/session';
 import { validateInitData } from '../lib/telegram';
 import { computeStreaks, heatmapForRange, ieltsStats } from '../lib/stats';
 import { reviewWord, vocabState } from '../lib/vocab';
+import { sentenceState, submitSentence } from '../lib/sentences';
+import { analytics } from '../lib/analytics';
+import { configureLock, lockNow, lockState, removeLock, unlock } from '../lib/lock';
 
 export function settingsView(u: UserRow, env: Env, today: string): SettingsView {
   return {
@@ -255,6 +262,47 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     return json({ card });
   }
 
+  // ---- GET /api/analytics ----
+  if (path === '/analytics' && method === 'GET') {
+    return json(await analytics(repo, user, today));
+  }
+
+  // ---- /api/lock ---- DNS lock through NextDNS
+  if (path === '/lock/config' && method === 'POST') {
+    const body = LockConfigSchema.parse(await readJson(req));
+    const r = await configureLock(repo, user, body.key.trim(), body.profile.trim().toLowerCase());
+    if (!r.ok) throw new HttpError(400, r.error ?? 'NextDNS error');
+    Object.assign(user, await repo.getUserById(user.id));
+    return json(await walletView(repo, user, env, today));
+  }
+  if (path === '/lock/config' && method === 'DELETE') {
+    await removeLock(repo, user);
+    Object.assign(user, await repo.getUserById(user.id));
+    return json(await walletView(repo, user, env, today));
+  }
+  if (path === '/lock/unlock' && method === 'POST') {
+    const body = UnlockSchema.parse(await readJson(req));
+    const r = await unlock(repo, user, body.minutes);
+    if (!r.ok) throw new HttpError(r.error === 'insufficient' ? 402 : 400, r.error === 'insufficient' ? 'Not enough minutes' : r.error === 'not_configured' ? 'Lock is not set up' : r.error ?? 'NextDNS error');
+    Object.assign(user, await repo.getUserById(user.id));
+    return json(await walletView(repo, user, env, today));
+  }
+  if (path === '/lock/close' && method === 'POST') {
+    const r = await lockNow(repo, user, true);
+    if (!r.ok) throw new HttpError(400, r.error ?? 'NextDNS error');
+    Object.assign(user, await repo.getUserById(user.id));
+    return json({ ...(await walletView(repo, user, env, today)), refunded: r.refunded });
+  }
+
+  // ---- /api/sentences ----
+  if (path === '/sentences' && method === 'GET') {
+    return json(await sentenceState(repo, user, today));
+  }
+  if (path === '/sentences' && method === 'POST') {
+    const body = SentenceSubmitSchema.parse(await readJson(req));
+    return json(await submitSentence(repo, user, today, body.word_id, body.text));
+  }
+
   // ---- /api/wallet ----
   if (path === '/wallet' && (method === 'GET' || method === 'PUT')) {
     if (method === 'PUT') {
@@ -270,10 +318,22 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     return json(await walletView(repo, user, env, today));
   }
 
+  // ---- POST /api/reading/refresh ---- unlock the next batch once every visible test is done
+  if (path === '/reading/refresh' && method === 'POST') {
+    const batch = user.reading_batch ?? 1;
+    const visible = readingLibrary(batch);
+    const done = new Set(await repo.rewardedTestIds(user.id));
+    if (!visible.every((t) => done.has(t.id))) throw new HttpError(409, 'Finish the current tests first');
+    if (visible.length >= READING_TESTS.length) throw new HttpError(409, 'No more tests yet');
+    await repo.updateUser(user.id, { reading_batch: batch + 1 });
+    Object.assign(user, await repo.getUserById(user.id));
+    return json(await walletView(repo, user, env, today));
+  }
+
   // ---- POST /api/reading/submit ----
   if (path === '/reading/submit' && method === 'POST') {
     const body = ReadingSubmitSchema.parse(await readJson(req));
-    const test = READING_TESTS.find((t) => t.id === body.test_id);
+    const test = readingLibrary(user.reading_batch ?? 1).find((t) => t.id === body.test_id);
     if (!test) throw new HttpError(404, 'Unknown test');
 
     const wrong: ReadingResult['wrong'] = [];
@@ -335,6 +395,9 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
 
 async function walletView(repo: Repo, user: UserRow, env: Env, today: string): Promise<WalletResponse> {
   const w = walletSettings(user);
+  const batch = user.reading_batch ?? 1;
+  const visible = readingLibrary(batch);
+  const done = await repo.rewardedTestIds(user.id);
   const key = await repo.ensureApiKey(user);
   const earnedToday = await repo.earnedOn(user.id, today);
   const base = (env.WEBAPP_URL || '').replace(/\/+$/, '');
@@ -348,6 +411,11 @@ async function walletView(repo: Repo, user: UserRow, env: Env, today: string): P
     attempts: await repo.attempts(user.id),
     ledger: await repo.ledger(user.id),
     sessions: await repo.sessions(user.id),
-    done_test_ids: await repo.rewardedTestIds(user.id),
+    done_test_ids: done,
+    batch,
+    library: visible.map((t) => ({ id: t.id, title: t.title, topic: t.topic, minutes: t.minutes, questions: t.questions.length })),
+    total_tests: READING_TESTS.length,
+    can_refresh: visible.every((t) => done.includes(t.id)) && visible.length < READING_TESTS.length,
+    lock: lockState(user, env),
   };
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { VocabCard, VocabResponse } from '@tracker/shared';
+import type { SentenceState, VocabCard, VocabResponse } from '@tracker/shared';
 import { REVIEW_INTERVALS } from '@tracker/shared';
 import { api, ApiError } from '../api';
 import { haptic } from '../tg';
@@ -25,6 +25,72 @@ function WordEntry({ w, showStages }: { w: VocabCard; showStages?: boolean }) {
       <div className="meaning">{w.meaning} <span className="ru">— {w.ru}</span></div>
       <div className="example">{w.example}</div>
     </div>
+  );
+}
+
+function Sentences() {
+  const toast = useToast();
+  const t = useT();
+  const [st, setSt] = useState<SentenceState | null>(null);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showMeaning, setShowMeaning] = useState(false);
+
+  useEffect(() => {
+    void api.sentences().then(setSt).catch(() => undefined);
+  }, []);
+
+  if (!st) return null;
+
+  const submit = async () => {
+    if (!st.next || !text.trim()) return;
+    setBusy(true);
+    try {
+      const r = await api.submitSentence(st.next.id, text);
+      if (r.ok) {
+        haptic.success();
+        toast(`+${r.earned} ${t('min')}`);
+        setText('');
+        setShowMeaning(false);
+      } else {
+        haptic.warning();
+        const reasons: Record<string, string> = {
+          short: t('At least 7 words.'),
+          missing: t('Use the word itself (any form).'),
+          copy: t('Too close to the example — write your own.'),
+          language: t('Write it in English.'),
+          cap: t('Daily limit reached — Reading only from here.'),
+          done_today: t('This word is done for today.'),
+        };
+        toast(reasons[r.reason ?? ''] ?? t('Error'));
+      }
+      setSt(r.state);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : t('Error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section label={`${t('Earn minutes')} · ${st.count} / ${st.cap}`}>
+      {st.next ? (
+        <>
+          <div className="row between" style={{ alignItems: 'baseline' }}>
+            <div><span className="word">{st.next.word}</span><span className="ipa">/{st.next.ipa}/</span><span className="pos">{st.next.pos}</span></div>
+            <button className="btn link small" onClick={() => setShowMeaning((v) => !v)}>{showMeaning ? t('Hide') : t('Meaning')}</button>
+          </div>
+          {showMeaning && <div className="meaning">{st.next.meaning} <span className="ru">— {st.next.ru}</span></div>}
+          <textarea rows={3} style={{ marginTop: 10 }} placeholder={t('Write a sentence with this word — one minute of social media for each.')} value={text} onChange={(e) => setText(e.target.value)} maxLength={400} />
+          <div className="row between" style={{ marginTop: 10 }}>
+            <span className="muted small">{t('{n} min in the wallet', { n: st.balance })}</span>
+            <button className="btn solid" disabled={busy || !text.trim()} onClick={() => void submit()}>{busy ? '…' : `+1 ${t('min')}`}</button>
+          </div>
+        </>
+      ) : (
+        <p className="muted small">{t('Forty sentences today — the limit. More minutes only through Reading now.')}</p>
+      )}
+    </Section>
   );
 }
 
@@ -77,6 +143,8 @@ export function Words() {
   return (
     <div className="screen">
       <h1>{t('Words')}</h1>
+
+      <Sentences />
 
       {(current || doneCount > 0) && (
         <Section label={current ? `${t('Review')} · ${doneCount + 1} ${t('of')} ${total}` : t('Review')}>

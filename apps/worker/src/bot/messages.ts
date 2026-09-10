@@ -27,6 +27,7 @@ export function helpText(): string {
     '/words — today’s vocabulary and reviews',
     '/hw — homework: list; /hw text — add (or a photo with the caption “hw”); /hw done N — mark done',
     '/minutes — social-media minutes in the wallet',
+    '/unlock 15 — open social media for 15 minutes (spends minutes); /lock — close early',
     '/partner — accountability partner (a link for a friend or a code for a group)',
     '/partner off — unlink the partner',
     '/help — this message',

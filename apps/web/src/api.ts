@@ -1,4 +1,4 @@
-import type { Activity, AuthResponse, Entry, Homework, IeltsResponse, Lesson, LessonInput, MockTest, ReadingResult, ReadingSubmit, Settings, SettingsView, StatsResponse, TodayResponse, VocabCard, VocabResponse, WalletResponse, WalletSettings } from '@tracker/shared';
+import type { Activity, AnalyticsResponse, AuthResponse, Entry, Homework, IeltsResponse, Lesson, LessonInput, MockTest, ReadingResult, ReadingSubmit, SentenceState, Settings, SettingsView, StatsResponse, TodayResponse, VocabCard, VocabResponse, WalletResponse, WalletSettings } from '@tracker/shared';
 import { deviceTz, getInitData } from './tg';
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '';
@@ -68,6 +68,14 @@ export const api = {
   wallet: () => request<WalletResponse>('GET', '/api/wallet'),
   saveWallet: (w: Partial<WalletSettings>) => request<WalletResponse>('PUT', '/api/wallet', w),
   submitReading: (body: ReadingSubmit) => request<ReadingResult>('POST', '/api/reading/submit', body),
+  refreshLibrary: () => request<WalletResponse>('POST', '/api/reading/refresh'),
+  analytics: () => request<AnalyticsResponse>('GET', '/api/analytics'),
+  lockConfig: (key: string, profile: string) => request<WalletResponse>('POST', '/api/lock/config', { key, profile }),
+  lockRemove: () => request<WalletResponse>('DELETE', '/api/lock/config'),
+  unlock: (minutes: number) => request<WalletResponse>('POST', '/api/lock/unlock', { minutes }),
+  lockNow: () => request<WalletResponse & { refunded: number }>('POST', '/api/lock/close'),
   vocab: () => request<VocabResponse>('GET', '/api/vocab'),
   reviewWord: (word_id: number, ok: boolean) => request<{ card: VocabCard }>('POST', '/api/vocab/review', { word_id, ok }),
+  sentences: () => request<SentenceState>('GET', '/api/sentences'),
+  submitSentence: (word_id: number, text: string) => request<{ ok: boolean; reason?: string; earned: number; state: SentenceState }>('POST', '/api/sentences', { word_id, text }),
 };

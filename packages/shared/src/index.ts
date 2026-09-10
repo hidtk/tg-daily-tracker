@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { minutesForBand, READING_TIME_LIMIT_MIN } from './reading';
+import type { VocabWord } from './vocab';
 
 // ---------- Constants ----------
 
@@ -438,7 +439,7 @@ export interface WalletLedgerEntry {
   id: number;
   at: string; // ISO datetime
   delta: number; // + earned, − spent
-  reason: 'reading' | 'spend' | 'expire' | 'manual';
+  reason: 'reading' | 'sentence' | 'spend' | 'expire' | 'manual';
   note: string | null;
 }
 
@@ -475,7 +476,32 @@ export interface WalletResponse extends WalletSettings {
   sessions: WalletSession[];
   /** ids of tests already completed for reward */
   done_test_ids: string[];
+  /** reading library: batches unlocked so far and what is visible */
+  batch: number;
+  library: { id: string; title: string; topic: string; minutes: number; questions: number }[];
+  total_tests: number;
+  /** all visible tests are done and more batches exist */
+  can_refresh: boolean;
+  lock: LockState;
 }
+
+/** DNS lock driven by the wallet. */
+export interface LockState {
+  configured: boolean;
+  state: 'locked' | 'open' | null;
+  /** ISO datetime when the open window ends */
+  until: string | null;
+  remaining_min: number;
+  error: string | null;
+  /** link to the Apple configuration profile (open in Safari) */
+  profile_url: string | null;
+  removal_password: string | null;
+  profile_id: string | null;
+}
+
+export const LockConfigSchema = z.object({ key: z.string().min(10).max(120), profile: z.string().regex(/^[a-z0-9]{4,10}$/i) });
+export const UnlockSchema = z.object({ minutes: z.number().int().min(1).max(180) });
+export const UNLOCK_PRESETS = [10, 15, 30, 60];
 
 export const ReadingSubmitSchema = z.object({
   test_id: z.string().min(1).max(32),
@@ -566,3 +592,67 @@ export const VocabReviewSchema = z.object({
   ok: z.boolean(),
 });
 export type VocabReview = z.infer<typeof VocabReviewSchema>;
+
+// ---------- Sentences for minutes ----------
+
+export const SENTENCE_MINUTES = 1;
+export const SENTENCES_PER_DAY = 40;
+export const SENTENCE_MIN_WORDS = 7;
+
+const STOP = new Set(['to', 'a', 'an', 'the', 'of', 'in', 'on', 'for', 'with', 'at', 'by', 'into', 'about']);
+
+function stem(w: string): string {
+  const x = w.toLowerCase().replace(/[^a-z'-]/g, '');
+  return x.length >= 6 ? x.slice(0, 5) : x.length >= 4 ? x.slice(0, x.length - 1) : x;
+}
+
+/**
+ * Rule-based check for a sentence that uses `word`:
+ * every meaningful token of the headword must appear (inflected forms allowed via a crude stem),
+ * the sentence must have at least SENTENCE_MIN_WORDS words, be mostly English, and not copy the example.
+ */
+export function checkSentence(word: string, example: string, text: string): { ok: boolean; reason?: 'short' | 'missing' | 'copy' | 'language' } {
+  const t = text.trim();
+  const tokens = t.split(/\s+/).filter(Boolean);
+  if (tokens.length < SENTENCE_MIN_WORDS) return { ok: false, reason: 'short' };
+  const latin = (t.match(/[A-Za-z]/g) ?? []).length;
+  const cyr = (t.match(/[А-Яа-яЁё]/g) ?? []).length;
+  if (latin < 10 || cyr > latin / 4) return { ok: false, reason: 'language' };
+  const stems = new Set(tokens.map(stem));
+  const keys = word.toLowerCase().split(/[\s-]+/).filter((k) => k && !STOP.has(k));
+  for (const k of keys) if (!stems.has(stem(k))) return { ok: false, reason: 'missing' };
+  const ex = new Set(example.toLowerCase().split(/\s+/).map(stem).filter((s) => s.length > 3));
+  const shared = tokens.map(stem).filter((s) => s.length > 3 && ex.has(s)).length;
+  if (ex.size && shared / ex.size > 0.6) return { ok: false, reason: 'copy' };
+  return { ok: true };
+}
+
+export interface SentenceState {
+  today: string;
+  count: number;
+  cap: number;
+  balance: number;
+  next: (VocabWord & { stage: number | null }) | null;
+  recent: { word: string; text: string; date: string }[];
+}
+
+export const SentenceSubmitSchema = z.object({ word_id: z.number().int().min(1), text: z.string().min(1).max(400) });
+
+// ---------- Analytics ----------
+
+export interface AnalyticsWeek {
+  from: string; // Monday
+  words_introduced: number;
+  reviews: number;
+  recalled: number;
+  sentences: number;
+  reading_tests: number;
+  /** average band of reading tests that week, null if none */
+  reading_band: number | null;
+}
+
+export interface AnalyticsResponse {
+  weeks: AnalyticsWeek[]; // last 8, oldest first
+  words: { introduced: number; mastered: number; total: number; sentences_total: number };
+  reading: { tests: number; avg_band: number | null; best_band: number | null; last: { date: string; band: number; test_id: string }[] };
+}

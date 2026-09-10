@@ -36,6 +36,8 @@ await call('setMyCommands', {
     { command: 'words', description: 'Today’s words and reviews' },
     { command: 'hw', description: 'Homework: list / add / done' },
     { command: 'minutes', description: 'Social-media minutes' },
+    { command: 'unlock', description: 'Open social media for N minutes' },
+    { command: 'lock', description: 'Lock social media now' },
     { command: 'partner', description: 'Accountability partner' },
     { command: 'help', description: 'Help' },
   ],

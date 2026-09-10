@@ -4,7 +4,7 @@
 
 | Слой | Технология |
 |---|---|
-| Mini App | Vite + React + TypeScript, официальный `telegram-web-app.js`, шрифт Goudy Old Style (локальный) / Sorts Mill Goudy (OFL, в комплекте) |
+| Mini App | Vite + React + TypeScript, официальный `telegram-web-app.js`, цвета из темы Telegram, системный шрифт |
 | Backend + бот + cron | Cloudflare Workers (статика Mini App раздаётся тем же Worker'ом) |
 | База | Cloudflare D1 (SQLite) |
 | CI/CD | GitHub Actions → `wrangler deploy` по push в `main` |
@@ -17,7 +17,8 @@
 - **Words**: 5 новых слов каждое утро (банк 150+ академических слов: транскрипция, значение, пример, перевод) и повторение по схеме 1 / 3 / 7 / 14 / 30 дней. Утром бот присылает слова и квиз «выбери значение» по тем, что пора повторить; в приложении — карточки «Knew it / Forgot».
 - **Задание дня**: банк из 40+ заданий (Writing T1/T2, Speaking cue cards, Reading, Listening, Grammar) по дням недели, `/task` в любой момент, кнопка «Done» засчитывает день.
 - **Занятия и домашка**: уроки с преподавателем (дни, время, таймзона) — напоминания утром и за N минут; `/hw текст` или фото с подписью «hw» — домашка привязывается к ближайшему занятию, утреннее задание подстраивается под неё.
-- **Practice**: Reading-мини-тесты (13 вопросов, оригинальные тексты, band по официальной шкале) и кошелёк минут соцсетей: 5.0–5.5 → 10, 6.0 → 15, 6.5+ → 30 мин; неистраченное переносится с потолком. Instagram / TikTok / YouTube / VK открываются через `GET /gate/<key>` из «Быстрых команд» на iPhone.
+- **Practice**: Reading-мини-тесты (16 оригинальных текстов по 13 вопросов, band по официальной шкале; выдаются партиями по 4 — кнопка «Обновить библиотеку», пройденные уходят в архив и доступны для повтора) и кошелёк минут соцсетей: 5.0–5.5 → 10, 6.0 → 15, 6.5+ → 30 мин; плюс 1 минута за предложение с новым словом (до 40 в день, проверка по правилам). Неистраченное переносится с потолком.
+- **Замок соцсетей**: Instagram / TikTok / YouTube / VK блокируются на уровне DNS через NextDNS (бесплатно, официальный API): Worker закрывает/открывает домены, «Открыть на N минут» списывает минуты, cron раз в минуту закрывает истёкшие окна. На iPhone ставится профиль DNS-over-HTTPS с паролем на удаление (`/dns/<key>.mobileconfig`). Старый вариант через Shortcuts (`/gate/<key>`) оставлен.
 - **Progress**: календарь и стрик, пробные тесты с графиком band по секциям, минуты по неделям и навыкам, дисциплина.
 - **Партнёр по ответственности**: `/partner` → ссылка для друга или код для группы; ему уходят недельные итоги и пропуски.
 - Экспорт всех данных в JSON.
@@ -103,6 +104,11 @@ POST /api/mocks, DELETE /api/mocks/:id
 GET  /api/proofs/:id/image   фото-подтверждение (прокси к Telegram)
 DELETE /api/proofs/:id, DELETE /api/partner
 GET  /api/vocab, POST /api/vocab/review   слова дня, очередь повторения, отметка «знал / забыл»
+GET/POST /api/sentences      слово для предложения; предложение → +1 мин
+GET  /api/analytics          слова, предложения, Reading по неделям
+POST /api/reading/refresh    открыть следующую партию тестов
+POST /api/lock/config, DELETE /api/lock/config, POST /api/lock/unlock {minutes}, POST /api/lock/close
+GET  /dns/:key.mobileconfig  профиль DNS для iPhone
 GET  /api/wallet, PUT /api/wallet   баланс, лимиты, gate-ссылка
 POST /api/reading/submit     { test_id, seconds, answers } → band + начисленные минуты
 GET  /gate/:key?app=&e=open|close|status  → текст «ALLOW N» / «BLOCK 0» (для iOS Shortcuts)
@@ -110,6 +116,7 @@ GET/POST /api/lessons, PUT/DELETE /api/lessons/:id
 GET /api/homeworks, POST /api/homeworks/:id/done, DELETE /api/homeworks/:id
 POST /bot/webhook            Telegram updates (проверяется secret_token)
 cron */15 * * * *            напоминания и недельные сводки по tz пользователей
+cron * * * * *               закрытие истёкших окон замка
 ```
 
 ## Модель данных

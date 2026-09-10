@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GATE_APP_LABEL, MCQ_LETTERS, READING_TESTS, TFNG_OPTIONS, type GateApp, type ReadingResult, type ReadingTest, type WalletResponse } from '@tracker/shared';
+import { GATE_APP_LABEL, MCQ_LETTERS, READING_TESTS, TFNG_OPTIONS, UNLOCK_PRESETS, type GateApp, type ReadingResult, type ReadingTest, type WalletResponse } from '@tracker/shared';
 import { api, ApiError } from '../api';
 import { haptic, tg } from '../tg';
 import { useToast } from '../components/Toast';
@@ -39,18 +39,43 @@ export function Practice() {
     <div className="screen">
       <h1>{t('Practice')}</h1>
 
-      <Section label={t('Reading')}>
+      <Section label={`${t('Reading')} · ${w.library.filter((x) => !done.has(x.id)).length} ${t('to do')}`}>
         <p className="muted small">{t('Thirteen questions, band on the official scale. A pass earns social-media minutes:')} <b>5.0–5.5 → 10</b>, <b>6.0 → 15</b>, <b>6.5 {t('and up')} → 30</b>. {t('Over the time limit the reward is halved; a test counts once.')}</p>
-        {READING_TESTS.map((x) => (
-          <button key={x.id} className={`test-row${done.has(x.id) ? ' done' : ''}`} onClick={() => { haptic.tap(); setTest(x); }}>
+        {w.library.filter((x) => !done.has(x.id)).map((x) => (
+          <button key={x.id} className="test-row" onClick={() => { haptic.tap(); setTest(READING_TESTS.find((r) => r.id === x.id) ?? null); }}>
             <div>
               <div>{x.title}</div>
-              <div className="muted small">{x.topic} · {x.questions.length} {t('questions')} · {t('about')} {x.minutes} {t('min')}</div>
+              <div className="muted small">{x.topic} · {x.questions} {t('questions')} · {t('about')} {x.minutes} {t('min')}</div>
             </div>
-            <span className="arrow">{done.has(x.id) ? '✓' : '→'}</span>
+            <span className="arrow">→</span>
           </button>
         ))}
+        {w.library.every((x) => done.has(x.id)) && (
+          <p className="muted small" style={{ marginTop: 8 }}>{w.can_refresh ? t('All done. Refresh the library to unlock the next four.') : t('All tests in the bank are done — new ones will come with an update.')}</p>
+        )}
+        {w.can_refresh && (
+          <button className="btn solid" style={{ marginTop: 6 }} onClick={async () => { haptic.tap(); setW(await api.refreshLibrary()); toast(t('Four new tests unlocked')); }}>{t('Refresh library')}</button>
+        )}
+        <div className="hint">{t('{a} of {b} tests unlocked', { a: w.library.length, b: w.total_tests })}</div>
       </Section>
+
+      {w.attempts.length > 0 && (
+        <Section label={t('Archive')}>
+          {[...new Map(w.attempts.filter((a) => a.earned > 0).map((a) => [a.test_id, a])).values()].map((a) => {
+            const meta = READING_TESTS.find((r) => r.id === a.test_id);
+            return (
+              <button key={a.test_id} className="test-row done" onClick={() => { haptic.tap(); setTest(meta ?? null); }}>
+                <div>
+                  <div>{meta?.title ?? a.test_id}</div>
+                  <div className="muted small">{a.date} · {a.correct}/{a.total} · band {a.band.toFixed(1)} · +{a.earned} {t('min')}</div>
+                </div>
+                <span className="arrow">↻</span>
+              </button>
+            );
+          })}
+          <div className="hint">{t('Retake any test for practice — minutes are paid once.')}</div>
+        </Section>
+      )}
 
       <Section label={t('Minutes')}>
         <div className="balance">{Math.floor(w.balance)}<span>{t('min')}</span></div>
@@ -63,8 +88,34 @@ export function Practice() {
       </Section>
 
       <Section label={t('Locked apps')}>
-        <Toggle label={t('Wallet on')} sub={t('Off, and the apps stop being blocked')} on={w.wallet_enabled} onChange={(v) => void patch({ wallet_enabled: v })} />
-        <div className="field" style={{ marginTop: 10 }}>
+        {w.lock.configured ? (
+          <>
+            <div className="row between">
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 600 }}>{w.lock.state === 'open' ? t('Open · {n} min left', { n: w.lock.remaining_min }) : t('Locked')}</div>
+                <div className="muted small">{w.apps.map((a) => GATE_APP_LABEL[a]).join(', ')}</div>
+              </div>
+              {w.lock.state === 'open' && <button className="btn" onClick={async () => { haptic.tap(); const r = await api.lockNow(); setW(r); toast(r.refunded ? t('{n} min returned', { n: r.refunded }) : t('Locked')); }}>{t('Lock now')}</button>}
+            </div>
+            {w.lock.state !== 'open' && (
+              <div className="chips" style={{ marginTop: 12 }}>
+                {UNLOCK_PRESETS.map((m) => (
+                  <button key={m} className="chip" disabled={w.balance < m} onClick={async () => { haptic.tap(); try { setW(await api.unlock(m)); toast(t('Open for {n} min', { n: m })); } catch (e) { haptic.warning(); toast(e instanceof ApiError ? e.message : t('Error')); } }}>{t('Open {n} min', { n: m })}</button>
+                ))}
+              </div>
+            )}
+            {w.lock.error && <div className="hint" style={{ color: 'var(--danger)' }}>NextDNS: {w.lock.error}</div>}
+            <div className="hint">{t('Minutes are spent when you open; closing early returns the unused ones. When time runs out the lock closes by itself and the bot tells you.')}</div>
+            <div className="row" style={{ gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
+              {w.lock.profile_url && <button className="btn link" onClick={() => { haptic.tap(); try { tg.openLink(w.lock.profile_url!); } catch { window.open(w.lock.profile_url!, '_blank'); } }}>{t('Install the iPhone profile')}</button>}
+              <button className="btn link" onClick={() => { haptic.tap(); setHowto(true); }}>{t('How it works')}</button>
+              <button className="btn link" style={{ color: 'var(--danger)' }} onClick={async () => { haptic.warning(); setW(await api.lockRemove()); }}>{t('Disconnect')}</button>
+            </div>
+          </>
+        ) : (
+          <LockSetup onDone={(r) => { setW(r); toast(t('Lock connected')); }} onHelp={() => setHowto(true)} />
+        )}
+        <div className="field" style={{ marginTop: 14 }}>
           <label>{t('Which apps')}</label>
           <div className="chips">
             {ALL_APPS.map((a) => (
@@ -76,7 +127,6 @@ export function Practice() {
           <Field label={t('Bank, max min')}><input type="number" min={0} max={600} defaultValue={w.bank_cap} onBlur={(e) => void patch({ bank_cap: Number(e.target.value) })} /></Field>
           <Field label={t('Daily limit')}><input type="number" min={0} max={600} defaultValue={w.daily_earn_cap} onBlur={(e) => void patch({ daily_earn_cap: Number(e.target.value) })} /></Field>
         </div>
-        <button className="btn" onClick={() => { haptic.tap(); setHowto(true); }}>{t('Set up on iPhone')}</button>
       </Section>
 
       {w.sessions.length > 0 && (
@@ -196,49 +246,54 @@ function ReadingRunner({ test, onClose, onDone }: { test: ReadingTest; onClose: 
   );
 }
 
-function Howto({ url, apps, onClose }: { url: string; apps: GateApp[]; onClose: () => void }) {
+function LockSetup({ onDone, onHelp }: { onDone: (r: WalletResponse) => void; onHelp: () => void }) {
   const toast = useToast();
   const t = useT();
-  const names = useMemo(() => apps.map((a) => GATE_APP_LABEL[a]).join(', ') || 'Instagram', [apps]);
-  const copy = (s: string) => navigator.clipboard?.writeText(s).then(() => toast(t('Copied')), () => toast(t('Copy it by hand')));
+  const [key, setKey] = useState('');
+  const [profile, setProfile] = useState('');
+  const [busy, setBusy] = useState(false);
   return (
-    <Sheet title={t('iPhone Shortcuts')} onClose={onClose}>
-      <p className="muted small">{t('iOS cannot ask a server for permission by itself, but Shortcuts can. Two automations per app ({apps}).', { apps: names })}</p>
+    <>
+      <p className="muted small">{t('Social media is locked at the DNS level through NextDNS (free). Create an account at nextdns.io, then paste the API key (My account → API) and the six-character configuration ID.')}</p>
+      <Field label="NextDNS API key"><input value={key} onChange={(e) => setKey(e.target.value)} placeholder="a1b2c3…" autoCapitalize="off" autoCorrect="off" /></Field>
+      <Field label={t('Configuration ID')}><input value={profile} onChange={(e) => setProfile(e.target.value)} placeholder="abc123" autoCapitalize="off" autoCorrect="off" /></Field>
+      <div className="row" style={{ gap: 16 }}>
+        <button className="btn solid" disabled={busy || key.length < 10 || profile.length < 4} onClick={async () => {
+          setBusy(true);
+          try { onDone(await api.lockConfig(key, profile)); haptic.success(); } catch (e) { haptic.warning(); toast(e instanceof ApiError ? e.message : t('Error')); } finally { setBusy(false); }
+        }}>{busy ? '…' : t('Connect')}</button>
+        <button className="btn link" onClick={onHelp}>{t('How it works')}</button>
+      </div>
+    </>
+  );
+}
 
-      <Section label={t('Gate link')}>
-        <code className="gate-url">{url}?app=instagram&e=open</code>
-        <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
-          <button className="btn link" onClick={() => copy(`${url}?app=instagram&e=open`)}>{t('Copy “opened”')}</button>
-          <button className="btn link" onClick={() => copy(`${url}?app=instagram&e=close`)}>{t('Copy “closed”')}</button>
-          <button className="btn link" onClick={() => { haptic.tap(); try { tg.openLink(`${url}?app=instagram&e=status`); } catch { window.open(`${url}?app=instagram&e=status`, '_blank'); } }}>{t('Test it')}</button>
-        </div>
-        <div className="hint">{t('For other apps replace')} <i>app=instagram</i> {t('with')} <i>tiktok</i>, <i>youtube</i> {t('or')} <i>vk</i>. {t('The link is personal — do not share it.')}</div>
-      </Section>
-
-      <Section label={t('Automation 1 — open')}>
+function Howto({ url, apps, onClose }: { url: string; apps: GateApp[]; onClose: () => void }) {
+  const t = useT();
+  const names = useMemo(() => apps.map((a) => GATE_APP_LABEL[a]).join(', ') || 'Instagram', [apps]);
+  void url;
+  return (
+    <Sheet title={t('How the lock works')} onClose={onClose}>
+      <Section label={t('The idea')}>
         <div className="steps">
-          <p>1. {t('Shortcuts → Automation → + → App.')}</p>
-          <p>2. {t('App: Instagram. When: Is Opened. Run Immediately, notifications off.')}</p>
-          <p>3. {t('Action Get Contents of URL → paste the “opened” link.')}</p>
-          <p>4. {t('Action If: [Contents of URL] contains ALLOW.')}</p>
-          <p>5. {t('In Otherwise: Show Notification (“Out of minutes — do a Reading”) and Open App → Shortcuts (or go Home via Open App → Settings).')}</p>
+          <p>{t('Every request from {apps} goes through NextDNS. While the lock is on, those domains do not resolve: the app opens, but nothing loads.', { apps: names })}</p>
+          <p>{t('Tap “Open N min” here or send /unlock 15 to the bot: the minutes are spent, the lock lifts within seconds. When the time is up, the lock closes by itself.')}</p>
         </div>
       </Section>
-
-      <Section label={t('Automation 2 — close')}>
+      <Section label={t('Setup, once')}>
         <div className="steps">
-          <p>{t('The same, but When: Is Closed, with the “closed” link — it charges the minutes you used.')}</p>
-          <p className="muted small">{t('If the close event never fires, the session closes itself after 45 minutes at most.')}</p>
+          <p>1. {t('nextdns.io → sign up (email only). A configuration is created automatically; its ID is the six characters in the address bar.')}</p>
+          <p>2. {t('My account → API → copy the key. Paste both here and tap Connect.')}</p>
+          <p>3. {t('Install the iPhone profile: open the link in Safari, then Settings → Profile Downloaded → Install. It routes DNS to NextDNS on Wi-Fi and mobile data.')}</p>
+          <p>4. {t('The profile has a removal password — give it to your partner. Without it the lock cannot be removed.')}</p>
         </div>
       </Section>
-
-      <Section label={t('Make it stick')}>
+      <Section label={t('Limits')}>
         <div className="steps">
-          <p>{t('Screen Time → a one-minute limit on these apps, and give the passcode to your partner. Then bypassing the automation stops being a two-second job.')}</p>
+          <p>{t('A VPN with its own DNS bypasses the lock — switch it off or set its DNS to NextDNS.')}</p>
+          <p>{t('Already-loaded content keeps working until the app asks for more; the first seconds after unlocking may still show errors.')}</p>
         </div>
       </Section>
-
-      <button className="btn link" onClick={() => { haptic.tap(); try { tg.openLink('https://support.apple.com/guide/shortcuts/apd690170742/ios'); } catch { /* noop */ } }}>{t('Apple’s guide to automations')}</button>
     </Sheet>
   );
 }

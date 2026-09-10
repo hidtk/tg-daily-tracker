@@ -37,6 +37,13 @@ export interface UserRow {
   vocab_per_day: number;
   last_vocab_sent: string | null;
   lang: string | null;
+  reading_batch: number;
+  nextdns_key: string | null;
+  nextdns_profile: string | null;
+  lock_state: string | null;
+  lock_until: string | null;
+  lock_password: string | null;
+  lock_error: string | null;
 }
 
 export interface VocabRow {
@@ -739,6 +746,51 @@ export class Repo {
       .prepare('SELECT date, COUNT(*) AS reviews, SUM(ok) AS correct FROM vocab_reviews WHERE user_id = ? AND date >= ? GROUP BY date ORDER BY date')
       .bind(userId, from)
       .all<{ date: string; reviews: number; correct: number }>();
+    return results;
+  }
+
+  // ---- sentences ----
+
+  async sentencesOn(userId: number, date: string): Promise<number> {
+    const r = await this.db.prepare('SELECT COUNT(*) AS n FROM vocab_sentences WHERE user_id = ? AND date = ?').bind(userId, date).first<{ n: number }>();
+    return r?.n ?? 0;
+  }
+
+  async sentenceExists(userId: number, wordId: number, date: string): Promise<boolean> {
+    const r = await this.db.prepare('SELECT 1 AS x FROM vocab_sentences WHERE user_id = ? AND word_id = ? AND date = ?').bind(userId, wordId, date).first();
+    return !!r;
+  }
+
+  async addSentence(userId: number, wordId: number, date: string, text: string) {
+    await this.db.prepare('INSERT INTO vocab_sentences (user_id, word_id, date, text) VALUES (?, ?, ?, ?)').bind(userId, wordId, date, text).run();
+  }
+
+  /** word_id → last date a sentence was written, for choosing the next word. */
+  async sentenceLastDates(userId: number): Promise<Map<number, string>> {
+    const { results } = await this.db.prepare('SELECT word_id, MAX(date) AS d FROM vocab_sentences WHERE user_id = ? GROUP BY word_id').bind(userId).all<{ word_id: number; d: string }>();
+    return new Map(results.map((r) => [r.word_id, r.d]));
+  }
+
+  async recentSentences(userId: number, limit = 10): Promise<{ word_id: number; text: string; date: string }[]> {
+    const { results } = await this.db.prepare('SELECT word_id, text, date FROM vocab_sentences WHERE user_id = ? ORDER BY id DESC LIMIT ?').bind(userId, limit).all<{ word_id: number; text: string; date: string }>();
+    return results;
+  }
+
+  async openLocks(nowIso: string): Promise<UserRow[]> {
+    const { results } = await this.db.prepare("SELECT * FROM users WHERE lock_state = 'open' AND lock_until IS NOT NULL AND lock_until <= ?").bind(nowIso).all<UserRow>();
+    return results;
+  }
+
+  async allAttemptsSince(userId: number, from: string) {
+    const { results } = await this.db
+      .prepare('SELECT test_id, date, band, correct, total, earned FROM reading_attempts WHERE user_id = ? AND date >= ? ORDER BY id')
+      .bind(userId, from)
+      .all<{ test_id: string; date: string; band: number; correct: number; total: number; earned: number }>();
+    return results;
+  }
+
+  async sentencesHistory(userId: number, from: string): Promise<{ date: string; n: number }[]> {
+    const { results } = await this.db.prepare('SELECT date, COUNT(*) AS n FROM vocab_sentences WHERE user_id = ? AND date >= ? GROUP BY date ORDER BY date').bind(userId, from).all<{ date: string; n: number }>();
     return results;
   }
 }
