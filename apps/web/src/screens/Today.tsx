@@ -5,6 +5,7 @@ import { api, ApiError } from '../api';
 import { haptic, tg, inTelegram } from '../tg';
 import { useToast } from '../components/Toast';
 import { Section, fmtDate } from '../components/ui';
+import { useLang, useT } from '../i18n';
 
 type DraftEntry = Omit<Entry, 'updated_at' | 'proofs'>;
 const draftKey = (date: string) => `draft:${date}`;
@@ -24,6 +25,8 @@ function loadDraft(date: string): DraftEntry | null {
 
 export function Today({ isNew }: { isNew: boolean }) {
   const toast = useToast();
+  const t = useT();
+  const { lang } = useLang();
   const [date, setDate] = useState<string | undefined>(undefined);
   const [data, setData] = useState<TodayResponse | null>(null);
   const [draft, setDraft] = useState<DraftEntry | null>(null);
@@ -51,7 +54,7 @@ export function Today({ isNew }: { isNew: boolean }) {
         setDirty(false);
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not load');
+      setError(e instanceof ApiError ? e.message : t('Could not load'));
     }
   }, []);
 
@@ -88,10 +91,10 @@ export function Today({ isNew }: { isNew: boolean }) {
       }
       setDirty(false);
       haptic.success();
-      toast('Saved');
+      toast(t('Saved'));
     } catch (e) {
       haptic.warning();
-      toast(e instanceof ApiError ? e.message : 'Could not save');
+      toast(e instanceof ApiError ? e.message : t('Could not save'));
     } finally {
       setSaving(false);
     }
@@ -101,7 +104,7 @@ export function Today({ isNew }: { isNew: boolean }) {
     if (!inTelegram) return;
     const mb = tg.MainButton;
     if (dirty && data?.editable) {
-      mb.setText(saving ? 'Saving…' : 'Save');
+      mb.setText(saving ? t('Saving…') : t('Save'));
       mb.show();
       if (saving) mb.showProgress();
       else mb.hideProgress();
@@ -110,7 +113,7 @@ export function Today({ isNew }: { isNew: boolean }) {
     return () => {
       mb.offClick(save);
     };
-  }, [dirty, saving, data?.editable, save]);
+  }, [dirty, saving, data?.editable, save, t]);
 
   if (error) return <div className="screen"><div className="err">{error}</div></div>;
   if (!data || !draft) return <span className="spinner" />;
@@ -129,7 +132,7 @@ export function Today({ isNew }: { isNew: boolean }) {
   return (
     <div className="screen">
       <div className="date-head">
-        <h1 style={{ margin: 0 }}>{fmtDate(cur, today)}</h1>
+        <h1 style={{ margin: 0 }}>{fmtDate(cur, today, lang)}</h1>
         <div className="nav-arrows">
           <button disabled={!canBack} onClick={() => { haptic.tap(); setDate(addDays(cur, -1)); }}>‹</button>
           <button disabled={!canFwd} onClick={() => { haptic.tap(); setDate(diffDays(cur, today) === 1 ? undefined : addDays(cur, 1)); }}>›</button>
@@ -138,22 +141,22 @@ export function Today({ isNew }: { isNew: boolean }) {
       <div className="countdown">
         {daysLeft != null
           ? daysLeft >= 0
-            ? <><b>{daysLeft}</b> days to the exam · target <b>{data.target.toFixed(1)}</b></>
-            : 'The exam date has passed'
-          : <>Target <b>{data.target.toFixed(1)}</b> · set the exam date in Settings</>}
-        {!data.editable && ' · read-only'}
+            ? <><b>{daysLeft}</b> {t('days to the exam')} · {t('target')} <b>{data.target.toFixed(1)}</b></>
+            : t('The exam date has passed')
+          : <>{t('Target')} <b>{data.target.toFixed(1)}</b> · {t('set the exam date in Settings')}</>}
+        {!data.editable && ` · ${t('read-only')}`}
       </div>
 
       {isNew && (
         <Section>
-          <p>Welcome. Each morning you get five words and a task; in the evening, log what you did here. Lessons, homework and the exam date are in Settings.</p>
+          <p>{t('Welcome. Each morning you get five words and a task; in the evening, log what you did here. Lessons, homework and the exam date are in Settings.')}</p>
         </Section>
       )}
 
       {(data.lessons_today.length > 0 || data.homeworks.length > 0) && (
-        <Section label={data.lessons_today.length ? 'Lesson' : 'Homework'}>
+        <Section label={data.lessons_today.length ? t('Lesson') : t('Homework')}>
           {data.lessons_today.map((l) => (
-            <div key={l.id}><b>{l.title}</b> today at {l.time}</div>
+            <div key={l.id}><b>{l.title}</b> {t('today at')} {l.time}</div>
           ))}
           {data.homeworks.length > 0 && (
             <div style={{ marginTop: data.lessons_today.length ? 10 : 0 }}>
@@ -167,53 +170,53 @@ export function Today({ isNew }: { isNew: boolean }) {
                   <div className="grow">
                     <div>{h.text}</div>
                     <div className="muted small">
-                      {h.due_date ? (diffDays(today, h.due_date) === 0 ? 'due today' : diffDays(today, h.due_date) < 0 ? 'overdue' : `due ${h.due_date}`) : 'no deadline'}
+                      {h.due_date ? (diffDays(today, h.due_date) === 0 ? t('due today') : diffDays(today, h.due_date) < 0 ? t('overdue') : `${t('due')} ${h.due_date}`) : t('no deadline')}
                       {h.tags.length ? ` · ${h.tags.join(', ')}` : ''}
                     </div>
                   </div>
                 </div>
               ))}
-              <div className="hint">Add homework in the chat: <i>/hw text</i>, or a photo captioned “hw”.</div>
+              <div className="hint">{t('Add homework in the chat:')} <i>/hw text</i>, {t('or a photo captioned “hw”.')}</div>
             </div>
           )}
         </Section>
       )}
 
-      <Section label="Practice">
+      <Section label={t('Practice')}>
         <div className="marks">
-          <button type="button" className={`mark ${e.planned ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.tap(); update({ planned: !e.planned }); }}>Planned</button>
-          <button type="button" className={`mark ${e.done ? 'on' : ''}`} disabled={!data.editable} onClick={() => { e.done ? haptic.tap() : haptic.success(); update({ done: !e.done, skipped: false }); }}>Done</button>
-          <button type="button" className={`mark skip ${e.skipped && !e.done ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.warning(); update({ skipped: !(e.skipped && !e.done), done: false }); }}>Skip</button>
+          <button type="button" className={`mark ${e.planned ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.tap(); update({ planned: !e.planned }); }}>{t('Planned')}</button>
+          <button type="button" className={`mark ${e.done ? 'on' : ''}`} disabled={!data.editable} onClick={() => { e.done ? haptic.tap() : haptic.success(); update({ done: !e.done, skipped: false }); }}>{t('Done')}</button>
+          <button type="button" className={`mark skip ${e.skipped && !e.done ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.warning(); update({ skipped: !(e.skipped && !e.done), done: false }); }}>{t('Skip')}</button>
         </div>
         {e.skipped && !e.done && (
-          <textarea className="note" placeholder="Why? (ill, exam, no energy — be honest)" maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.skip_reason ?? ''} onChange={(ev) => update({ skip_reason: ev.target.value })} />
+          <textarea className="note" placeholder={t('Why? (ill, exam, no energy — be honest)')} maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.skip_reason ?? ''} onChange={(ev) => update({ skip_reason: ev.target.value })} />
         )}
         {(e.planned || e.plan_note) && (
-          <textarea className="note" placeholder="Plan (e.g. Listening section 2, 30 min)" maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.plan_note ?? ''} onChange={(ev) => update({ plan_note: ev.target.value })} />
+          <textarea className="note" placeholder={t('Plan (e.g. Listening section 2, 30 min)')} maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.plan_note ?? ''} onChange={(ev) => update({ plan_note: ev.target.value })} />
         )}
         {e.done && (
           <>
-            <div className="label" style={{ marginTop: 12 }}>Minutes</div>
+            <div className="label" style={{ marginTop: 12 }}>{t('Minutes')}</div>
             <div className="chips">
               {MINUTE_PRESETS.map((m) => (
                 <button key={m} type="button" className={`chip ${e.minutes === m ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.select(); update({ minutes: e.minutes === m ? 0 : m }); }}>{m}</button>
               ))}
             </div>
-            <div className="label" style={{ marginTop: 12 }}>Skills</div>
+            <div className="label" style={{ marginTop: 12 }}>{t('Skills')}</div>
             <div className="chips">
               {SKILLS.map((sk) => (
-                <button key={sk} type="button" className={`chip ${e.skills?.includes(sk) ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.select(); toggleSkill(sk); }}>{SKILL_LABEL[sk]}</button>
+                <button key={sk} type="button" className={`chip ${e.skills?.includes(sk) ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.select(); toggleSkill(sk); }}>{t(SKILL_LABEL[sk])}</button>
               ))}
             </div>
-            <textarea className="note" placeholder="How did it go? (optional)" maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.done_note ?? ''} onChange={(ev) => update({ done_note: ev.target.value })} />
+            <textarea className="note" placeholder={t('How did it go? (optional)')} maxLength={NOTE_MAX} rows={1} disabled={!data.editable} value={e.done_note ?? ''} onChange={(ev) => update({ done_note: ev.target.value })} />
           </>
         )}
-        {e.skipped && !e.done && <div className="status">A deliberate skip: once a week it does not break the streak. Your partner sees the reason.</div>}
-        {e.planned && !e.done && !e.skipped && <div className="status">Planned, not yet done.</div>}
+        {e.skipped && !e.done && <div className="status">{t('A deliberate skip: once a week it does not break the streak. Your partner sees the reason.')}</div>}
+        {e.planned && !e.done && !e.skipped && <div className="status">{t('Planned, not yet done.')}</div>}
       </Section>
 
       {dirty && data.editable && !inTelegram && (
-        <button className="btn solid block savebar" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
+        <button className="btn solid block savebar" disabled={saving} onClick={save}>{saving ? t('Saving…') : t('Save')}</button>
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import { api, ApiError } from '../api';
 import { haptic } from '../tg';
 import { useToast } from '../components/Toast';
 import { Section } from '../components/ui';
+import { useT } from '../i18n';
 
 function WordEntry({ w, showStages }: { w: VocabCard; showStages?: boolean }) {
   return (
@@ -29,6 +30,7 @@ function WordEntry({ w, showStages }: { w: VocabCard; showStages?: boolean }) {
 
 export function Words() {
   const toast = useToast();
+  const t = useT();
   const [data, setData] = useState<VocabResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [queue, setQueue] = useState<VocabCard[]>([]);
@@ -44,7 +46,7 @@ export function Words() {
         setQueue(r.due);
         setRevealed(false);
       })
-      .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : 'Could not load'));
+      .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : t('Could not load')));
 
   useEffect(() => {
     void load();
@@ -66,7 +68,7 @@ export function Words() {
     try {
       await api.reviewWord(current.id, ok);
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : 'Could not save the review');
+      toast(e instanceof ApiError ? e.message : t('Could not save'));
     }
   };
 
@@ -74,10 +76,10 @@ export function Words() {
 
   return (
     <div className="screen">
-      <h1>Words</h1>
+      <h1>{t('Words')}</h1>
 
       {(current || doneCount > 0) && (
-        <Section label={current ? `Review · ${doneCount + 1} of ${total}` : 'Review'}>
+        <Section label={current ? `${t('Review')} · ${doneCount + 1} ${t('of')} ${total}` : t('Review')}>
           {current ? (
             <div className="review-card">
               <div className="word">{current.word}</div>
@@ -88,36 +90,36 @@ export function Words() {
                   <div className="ru">{current.ru}</div>
                   <div className="example">{current.example}</div>
                   <div className="review-actions">
-                    <button className="btn quiet" onClick={() => void answer(false)}>Forgot</button>
-                    <button className="btn solid" onClick={() => void answer(true)}>Knew it</button>
+                    <button className="btn quiet" onClick={() => void answer(false)}>{t('Forgot')}</button>
+                    <button className="btn solid" onClick={() => void answer(true)}>{t('Knew it')}</button>
                   </div>
                 </>
               ) : (
-                <button className="btn block" style={{ marginTop: 28 }} onClick={() => { haptic.tap(); setRevealed(true); }}>Show meaning</button>
+                <button className="btn block" style={{ marginTop: 28 }} onClick={() => { haptic.tap(); setRevealed(true); }}>{t('Show meaning')}</button>
               )}
             </div>
           ) : (
-            <p className="muted">Done for today: {okCount} of {doneCount} recalled. Missed words come back tomorrow; the rest move up a step.</p>
+            <p className="muted">{t('Done for today: {ok} of {n} recalled. Missed words come back tomorrow; the rest move up a step.', { ok: okCount, n: doneCount })}</p>
           )}
         </Section>
       )}
 
-      <Section label={data.new_words.length ? 'Today’s words' : 'New words'}>
+      <Section label={data.new_words.length ? t('Today’s words') : t('New words')}>
         {data.new_words.length ? data.new_words.map((w) => <WordEntry key={w.id} w={w} />) : (
-          <p className="muted">{data.per_day ? 'The whole bank has been introduced.' : 'Daily words are switched off in Settings.'}</p>
+          <p className="muted">{data.per_day ? t('The whole bank has been introduced.') : t('Daily words are switched off in Settings.')}</p>
         )}
-        {data.new_words.length > 0 && <div className="hint">These come back tomorrow, then after 3, 7, 14 and 30 days. Five recalls in a row and a word is yours.</div>}
+        {data.new_words.length > 0 && <div className="hint">{t('These come back tomorrow, then after 3, 7, 14 and 30 days. Five recalls in a row and a word is yours.')}</div>}
       </Section>
 
-      <Section label="Progress">
+      <Section label={t('Progress')}>
         <div className="progress-line">
-          <span>{data.learned} of {data.total} introduced</span>
+          <span>{t('{n} of {total} introduced', { n: data.learned, total: data.total })}</span>
           <i style={{ ['--w' as string]: `${pct}%` }} />
-          <span>{data.mastered} mastered</span>
+          <span>{t('{n} mastered', { n: data.mastered })}</span>
         </div>
         {data.history.length > 0 && (
           <div className="hint">
-            Last two weeks: {data.history.reduce((s, h) => s + h.reviews, 0)} reviews, {Math.round((data.history.reduce((s, h) => s + h.correct, 0) / Math.max(1, data.history.reduce((s, h) => s + h.reviews, 0))) * 100)}% recalled.
+            {t('Last two weeks: {r} reviews, {p}% recalled.', { r: data.history.reduce((s, h) => s + h.reviews, 0), p: Math.round((data.history.reduce((s, h) => s + h.correct, 0) / Math.max(1, data.history.reduce((s, h) => s + h.reviews, 0))) * 100) })}
           </div>
         )}
       </Section>

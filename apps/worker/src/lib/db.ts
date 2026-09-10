@@ -36,6 +36,7 @@ export interface UserRow {
   sm_api_key: string | null;
   vocab_per_day: number;
   last_vocab_sent: string | null;
+  lang: string | null;
 }
 
 export interface VocabRow {
@@ -190,6 +191,7 @@ export function userSettings(u: UserRow): Settings {
     ielts_weekly_hours: u.ielts_weekly_hours ?? 7,
     ielts_daily_task: (u.ielts_daily_task ?? 1) !== 0,
     vocab_per_day: u.vocab_per_day ?? 5,
+    lang: u.lang === 'ru' ? 'ru' : 'en',
   };
 }
 

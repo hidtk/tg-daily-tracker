@@ -106,6 +106,8 @@ export const SettingsSchema = z.object({
   ielts_daily_task: z.boolean(),
   /** new vocabulary words introduced each morning (0 = off) */
   vocab_per_day: z.number().int().min(0).max(20),
+  /** Mini App language */
+  lang: z.enum(['en', 'ru']),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const SettingsPutSchema = SettingsSchema.partial();
@@ -133,6 +135,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ielts_weekly_hours: 7,
   ielts_daily_task: true,
   vocab_per_day: 5,
+  lang: 'en',
 };
 
 export const LessonSchema = z.object({

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { haptic, tg } from '../tg';
+import { translate, useT, type Lang } from '../i18n';
 
 export function Switch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -29,12 +30,13 @@ export function Toggle({ label, sub, on, onChange }: { label: string; sub?: stri
 }
 
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const t = useT();
   return (
     <div className="sheet-bg" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
           <h2>{title}</h2>
-          <button className="btn link" onClick={onClose}>Close</button>
+          <button className="btn link" onClick={onClose}>{t('Close')}</button>
         </div>
         {children}
       </div>
@@ -75,15 +77,15 @@ export const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'A
 export const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 export const WD_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-export function fmtDate(iso: string, today?: string): string {
-  if (iso === today) return 'Today';
+export function fmtDate(iso: string, today?: string, lang: Lang = 'en'): string {
+  if (iso === today) return translate(lang, 'Today');
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
-  const wd = WD_LONG[(dt.getUTCDay() + 6) % 7];
-  return `${wd}, ${d} ${MONTHS_SHORT[m - 1]}`;
+  const wd = translate(lang, WD_LONG[(dt.getUTCDay() + 6) % 7]);
+  return `${wd}, ${d} ${translate(lang, MONTHS_SHORT[m - 1])}`;
 }
 
-export function fmtShort(iso: string): string {
+export function fmtShort(iso: string, lang: Lang = 'en'): string {
   const [, m, d] = iso.split('-').map(Number);
-  return `${d} ${MONTHS_SHORT[m - 1]}`;
+  return `${d} ${translate(lang, MONTHS_SHORT[m - 1])}`;
 }
