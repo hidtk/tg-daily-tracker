@@ -200,7 +200,7 @@ function LockDiagnostics({ w }: { w: WalletResponse }) {
             <div className="diag-help small">
               <b>{ru ? 'Телефон не ходит через NextDNS. Проверь по порядку:' : 'This phone does not use NextDNS. Check in order:'}</b>
               <ol>
-                <li>{ru ? 'Выключи VPN (Amnezia и другие): VPN подменяет DNS, и блокировка не видна.' : 'Turn off any VPN (Amnezia etc.): a VPN replaces DNS and bypasses the lock.'}</li>
+                <li>{ru ? 'VPN (Amnezia и другие) подменяет DNS. Если VPN нужен всегда — пропиши NextDNS внутри VPN, шаг 7 выше.' : 'A VPN (Amnezia etc.) replaces DNS. If you keep the VPN on, set NextDNS inside the VPN — step 7 above.'}</li>
                 <li>{ru ? 'iPhone: Настройки → Основные → VPN и управление устройством → DNS → выбери «IELTS lock». Если профиля там нет — установи его кнопкой выше.' : 'iPhone: Settings → General → VPN & Device Management → DNS → choose “IELTS lock”. If it is not there, install the profile with the button above.'}</li>
                 <li>{ru ? 'Android: Настройки → Сеть → Частный DNS → имя хоста из шага 6.' : 'Android: Settings → Network → Private DNS → the hostname from step 6.'}</li>
                 <li>{ru ? 'Закрой и заново открой Instagram/TikTok — приложения держат старые адреса несколько минут.' : 'Force-close and reopen Instagram/TikTok — apps keep old addresses for a few minutes.'}</li>
@@ -291,6 +291,20 @@ function NextDnsSetup({ w, onChange }: { w: WalletResponse; onChange: (r: Wallet
           {ru ? 'Настройки → Сеть и интернет → Частный DNS → «Имя хоста» →' : 'Settings → Network & internet → Private DNS → Hostname →'} <code>{host}</code>
           <br />
           <button className="btn sm" style={{ marginTop: 8 }} onClick={async () => { haptic.tap(); try { await navigator.clipboard.writeText(host); toast(t('Copied')); } catch { toast(t('Copy it by hand')); } }}>{t('Copy')}</button>
+        </Step>
+      )}
+      {lock.profile_id && (
+        <Step n={7} title={ru ? 'VPN всегда включён (Amnezia)' : 'VPN always on (Amnezia)'}>
+          {ru ? 'Пока VPN включён, телефон берёт DNS из VPN, и профиль NextDNS не работает. Пропиши NextDNS прямо в Amnezia:' : 'While a VPN is on, the phone uses the VPN’s DNS and the NextDNS profile does nothing. Put NextDNS inside Amnezia:'}
+          <ol className="vpn-steps">
+            <li>{ru ? 'Включи Amnezia и открой страницу настройки NextDNS (кнопка ниже). В блоке «Linked IP» нажми «Link IP» — NextDNS запомнит адрес твоего VPN-сервера.' : 'Turn Amnezia on and open the NextDNS setup page (button below). In “Linked IP” tap “Link IP” — NextDNS remembers your VPN server’s address.'}</li>
+            <li>{ru ? 'Там же скопируй два DNS-адреса из блока «Linked IP» (вида 45.90.28.… и 45.90.30.…).' : 'Copy the two DNS addresses from the “Linked IP” block (like 45.90.28.… and 45.90.30.…).'}</li>
+            <li>{ru ? 'Amnezia → Настройки → Соединение → DNS-серверы: выключи «Использовать AmneziaDNS» и вставь адреса в «Основной» и «Запасной».' : 'Amnezia → Settings → Connection → DNS servers: turn off “Use AmneziaDNS” and paste the addresses as primary and secondary.'}</li>
+            <li>{ru ? 'Переподключи VPN, закрой Instagram/TikTok и нажми «Проверить блокировку» ниже.' : 'Reconnect the VPN, force-close Instagram/TikTok and tap “Check the lock” below.'}</li>
+          </ol>
+          {ru ? 'Сменил сервер или страну в Amnezia — снова нажми «Link IP». Способ 1 («Команды») работает и с VPN, без этой настройки.' : 'Switched server or country in Amnezia — tap “Link IP” again. Option 1 (Shortcuts) works with a VPN as is.'}
+          <br />
+          <LinkBtn href={`https://my.nextdns.io/${lock.profile_id}/setup`}>{ru ? 'Настройка NextDNS (Linked IP)' : 'NextDNS setup (Linked IP)'}</LinkBtn>
         </Step>
       )}
       <LockDiagnostics w={w} />
