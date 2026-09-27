@@ -40,8 +40,10 @@ function applyTheme() {
     return;
   }
   try {
-    tg.setHeaderColor('secondary_bg_color');
-    tg.setBackgroundColor('secondary_bg_color');
+    // «Элвис» surface-tint, so the Telegram header blends with the page.
+    const bg = dark ? '#0e2140' : '#eef6ff';
+    tg.setHeaderColor(bg as `#${string}`);
+    tg.setBackgroundColor(bg as `#${string}`);
   } catch {
     /* noop */
   }

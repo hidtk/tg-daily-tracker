@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { AuthResponse } from '@tracker/shared';
 import { api, auth, ApiError } from './api';
 import { haptic } from './tg';
@@ -8,16 +8,17 @@ import { Practice } from './screens/Practice';
 import { Progress } from './screens/Progress';
 import { SettingsScreen } from './screens/Settings';
 import { ToastProvider } from './components/Toast';
+import { Icon, Mascot } from './components/Mascot';
 import { LangContext, readStoredLang, storeLang, translate, type Lang } from './i18n';
 
 type Tab = 'today' | 'words' | 'practice' | 'progress' | 'settings';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'today', label: 'Today' },
-  { id: 'words', label: 'Words' },
-  { id: 'practice', label: 'Practice' },
-  { id: 'progress', label: 'Progress' },
-  { id: 'settings', label: 'Settings' },
+const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
+  { id: 'today', label: 'Today', icon: () => Icon.streak(24) },
+  { id: 'words', label: 'Words', icon: () => Icon.book(24) },
+  { id: 'practice', label: 'Practice', icon: () => Icon.star(24) },
+  { id: 'progress', label: 'Progress', icon: () => Icon.chart(24) },
+  { id: 'settings', label: 'Settings', icon: () => Icon.gear(24) },
 ];
 
 export function App() {
@@ -51,7 +52,8 @@ export function App() {
 
   if (error) {
     return (
-      <div className="screen center" style={{ paddingTop: 80 }}>
+      <div className="screen center" style={{ paddingTop: 60 }}>
+        <div className="el-mascot center"><Mascot size={120} /></div>
         <h2>{translate(lang, error)}</h2>
         <p className="muted small" style={{ marginTop: 10 }}>{translate(lang, 'Open the app from the button in the chat with the bot.')}</p>
       </div>
@@ -77,7 +79,8 @@ export function App() {
               setTab(t.id);
             }}
           >
-            {translate(lang, t.label)}
+            {t.icon()}
+            <span>{translate(lang, t.label)}</span>
           </button>
         ))}
       </nav>

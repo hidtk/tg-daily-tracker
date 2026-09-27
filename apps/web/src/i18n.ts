@@ -9,7 +9,7 @@ const RU: Record<string, string> = {
   'Close': 'Закрыть', 'Save': 'Сохранить', 'Saved': 'Сохранено', 'Saving…': 'Сохраняю…', 'Error': 'Ошибка', 'Could not load': 'Не удалось загрузить',
   'Could not save': 'Не удалось сохранить', 'Could not connect': 'Не удалось подключиться', 'Open the app from Telegram': 'Откройте приложение из Telegram',
   'Open the app from the button in the chat with the bot.': 'Откройте приложение кнопкой в чате с ботом.',
-  'Delete': 'Удалить', 'Deleted': 'Удалено', 'Add': 'Добавить', 'Copied': 'Скопировано', 'Copy it by hand': 'Скопируй вручную', 'Copy': 'Скопировать',
+  'Delete': 'Удалить', 'Deleted': 'Удалено', 'Add': 'Добавить', 'Copied': 'Скопировано', 'Copy it by hand': 'Скопируй вручную', 'Copy': 'Скопировать', 'Great work!': 'Отличная работа!', 'Almost! Try again.': 'Почти! Попробуй ещё.',
   'iPhone: block with Shortcuts': 'iPhone: блокировка через «Команды»', 'Step-by-step guide': 'Пошаговая инструкция',
   'No NextDNS needed: the Shortcuts app closes {apps} when you have no minutes and counts the time you spend. About 5 minutes to set up, once.':
     'Без NextDNS: приложение «Команды» закрывает {apps}, когда минут нет, и считает потраченное время. Настройка — около 5 минут, один раз.',
