@@ -4,6 +4,7 @@ import { haptic } from '../tg';
 import { useLang, useT } from '../i18n';
 import { useToast } from './Toast';
 import { Section, Sheet } from './ui';
+import { Mascot } from './Mascot';
 
 /** Absolute gate URL (WEBAPP_URL may be empty on the server → relative path). */
 export function absoluteGateUrl(gateUrl: string): string {
@@ -87,18 +88,19 @@ export function ShortcutsGuide({ gateUrl, apps, onClose }: { gateUrl: string; ap
       const r = await fetch(statusUrl, { cache: 'no-store' });
       const body = (await r.text()).trim();
       const [word, n] = body.split(/\s+/);
-      if (word === 'ALLOW') setCheck(ru ? `✅ Ссылка работает. Сейчас доступ открыт, на балансе ${n} мин.` : `✅ The link works. Access is open, ${n} min on the balance.`);
-      else if (word === 'BLOCK' && !body.includes('bad key')) setCheck(ru ? '✅ Ссылка работает. Сейчас минут нет — соцсети будут закрываться.' : '✅ The link works. No minutes now — social media will be closed.');
-      else setCheck(ru ? '❌ Ключ не принят. Закрой и снова открой приложение.' : '❌ Key rejected. Reopen the app.');
+      if (word === 'ALLOW') setCheck(ru ? `Ссылка работает. Сейчас доступ открыт, на балансе ${n} мин.` : `The link works. Access is open, ${n} min on the balance.`);
+      else if (word === 'BLOCK' && !body.includes('bad key')) setCheck(ru ? 'Ссылка работает. Сейчас минут нет — соцсети будут закрываться.' : 'The link works. No minutes now — social media will be closed.');
+      else setCheck(ru ? 'Ключ не принят. Закрой и снова открой приложение.' : 'Key rejected. Reopen the app.');
       haptic.success();
     } catch {
-      setCheck(ru ? '❌ Нет связи с сервером.' : '❌ Cannot reach the server.');
+      setCheck(ru ? 'Нет связи с сервером.' : 'Cannot reach the server.');
       haptic.warning();
     }
   };
 
   return (
     <Sheet title={ru ? 'Блокировка на iPhone через «Команды»' : 'iPhone lock with Shortcuts'} onClose={onClose}>
+      <Mascot size={72} message={ru ? 'Пять минут настройки — и соцсети открываются только за минуты, заработанные на тестах.' : 'Five minutes of setup, and social media opens only for minutes earned on tests.'} />
       <Section label={ru ? 'Как это работает' : 'How it works'}>
         <div className="steps">
           <p>
@@ -176,13 +178,13 @@ export function ShortcutsGuide({ gateUrl, apps, onClose }: { gateUrl: string; ap
         <div className="steps">
           {ru ? (
             <>
-              <p>1. Нажми «Проверить ссылку» выше — должно быть ✅.</p>
+              <p>1. Нажми «Проверить ссылку» выше — должно появиться «Ссылка работает».</p>
               <p>2. Открой Instagram. Если минут нет, приложение закроется, а бот пришлёт сообщение.</p>
               <p>3. Пройди Reading-тест, открой снова — приложение пустит. Закрой его: в разделе «Последние сессии» появится запись.</p>
             </>
           ) : (
             <>
-              <p>1. Tap “Test the link” above — you should see ✅.</p>
+              <p>1. Tap “Test the link” above — you should see “The link works”.</p>
               <p>2. Open Instagram. With no minutes it closes and the bot messages you.</p>
               <p>3. Pass a Reading test and open it again — it lets you in. Close it: an entry appears under “Recent sessions”.</p>
             </>
