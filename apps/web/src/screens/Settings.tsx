@@ -5,6 +5,7 @@ import { deviceTz, haptic, inTelegram, tg } from '../tg';
 import { useToast } from '../components/Toast';
 import { Field, Section, Toggle } from '../components/ui';
 import { LessonsCard } from '../components/Lessons';
+import { LockSettings } from '../components/LockSettings';
 import { BandSelect } from './Progress';
 import { useLang, useT, type Lang } from '../i18n';
 
@@ -116,6 +117,8 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
       <Section label={t('Lessons')}>
         <LessonsCard />
       </Section>
+
+      <LockSettings />
 
       <Section label={t('Accountability partner')}>
         {s.partner ? (
