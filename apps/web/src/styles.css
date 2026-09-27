@@ -399,3 +399,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-muted); opacity: 0.
 .sc-num { background-image: var(--matte-solid); box-shadow: var(--bevel-solid), 0 2px 0 var(--primary-edge); }
 .el-mascot svg { filter: drop-shadow(0 6px 10px rgba(11, 31, 63, 0.10)); }
 .nav { box-shadow: 0 -6px 16px rgba(13, 78, 166, 0.06); }
+
+/* Lock settings: translation challenge */
+.challenge-row { padding: var(--space-3) 0; border-top: 2px solid var(--border); }
+.challenge-row:first-of-type { border-top: 0; }
+.challenge-ru { font: 800 18px/24px var(--font-round); margin-bottom: 2px; }
+.challenge-row input { margin-top: var(--space-2); }
+.challenge-row.ok input { border-color: var(--success); background: var(--success-bg); color: var(--success-ink); }
+.challenge-row.bad input { border-color: var(--error); background: var(--error-bg); color: var(--error-ink); }
+.challenge-answer { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--error-ink); font-weight: 700; font-size: 15px; }
+a.btn { display: inline-block; text-decoration: none; }
