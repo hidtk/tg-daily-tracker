@@ -10,6 +10,13 @@ import { Mascot } from '../components/Mascot';
 
 const ALL_APPS: GateApp[] = ['instagram', 'tiktok', 'youtube', 'vk'];
 
+/** Server times are UTC ISO strings (sometimes without the Z) — show them in the device's time. */
+function fmtLocal(iso: string): string {
+  const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`);
+  if (Number.isNaN(d.getTime())) return iso.slice(5, 16).replace('T', ' ');
+  return d.toLocaleString(undefined, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
   return `${String(m).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
@@ -64,7 +71,7 @@ export function Practice() {
 
       {w.attempts.length > 0 && (
         <Section label={t('Archive')}>
-          {[...new Map(w.attempts.filter((a) => a.earned > 0).map((a) => [a.test_id, a])).values()].map((a) => {
+          {[...new Map(w.attempts.map((a) => [a.test_id, a])).values()].map((a) => {
             const meta = READING_TESTS.find((r) => r.id === a.test_id);
             return (
               <button key={a.test_id} className="test-row done" onClick={() => { haptic.tap(); setTest(meta ?? null); }}>
@@ -98,7 +105,7 @@ export function Practice() {
                 <div style={{ fontSize: 22, fontWeight: 600 }}>{w.lock.state === 'open' ? t('Open · {n} min left', { n: w.lock.remaining_min }) : t('Locked')}</div>
                 <div className="muted small">{w.apps.map((a) => GATE_APP_LABEL[a]).join(', ')}</div>
               </div>
-              {w.lock.state === 'open' && <button className="btn" onClick={async () => { haptic.tap(); const r = await api.lockNow(); setW(r); toast(r.refunded ? t('{n} min returned', { n: r.refunded }) : t('Locked')); }}>{t('Lock now')}</button>}
+              {w.lock.state === 'open' && <button className="btn" onClick={async () => { haptic.tap(); try { const r = await api.lockNow(); setW(r); toast(r.refunded ? t('{n} min returned', { n: r.refunded }) : t('Locked')); } catch (e) { haptic.warning(); toast(e instanceof ApiError ? e.message : t('Error')); } }}>{t('Lock now')}</button>}
             </div>
             {w.lock.state !== 'open' && (
               <div className="chips" style={{ marginTop: 12 }}>
@@ -112,7 +119,7 @@ export function Practice() {
             <div className="row" style={{ gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
               {w.lock.profile_url && <button className="btn link" onClick={() => { haptic.tap(); try { tg.openLink(w.lock.profile_url!); } catch { window.open(w.lock.profile_url!, '_blank'); } }}>{t('Install the iPhone profile')}</button>}
               <button className="btn link" onClick={() => { haptic.tap(); setHowto(true); }}>{t('How it works')}</button>
-              <button className="btn link" style={{ color: 'var(--danger)' }} onClick={async () => { haptic.warning(); setW(await api.lockRemove()); }}>{t('Disconnect')}</button>
+              <button className="btn link" style={{ color: 'var(--danger)' }} onClick={async () => { haptic.warning(); try { setW(await api.lockRemove()); } catch (e) { toast(e instanceof ApiError ? e.message : t('Error')); } }}>{t('Disconnect')}</button>
             </div>
           </>
         ) : (
@@ -127,8 +134,8 @@ export function Practice() {
           </div>
         </div>
         <div className="field-grid">
-          <Field label={t('Bank, max min')}><input type="number" min={0} max={600} defaultValue={w.bank_cap} onBlur={(e) => void patch({ bank_cap: Number(e.target.value) })} /></Field>
-          <Field label={t('Daily limit')}><input type="number" min={0} max={600} defaultValue={w.daily_earn_cap} onBlur={(e) => void patch({ daily_earn_cap: Number(e.target.value) })} /></Field>
+          <Field label={t('Bank, max min')}><input type="number" min={0} max={600} defaultValue={w.bank_cap} onBlur={(e) => { const v = e.target.value.trim() === '' ? NaN : Number(e.target.value); if (Number.isFinite(v) && v >= 0 && v !== w.bank_cap) void patch({ bank_cap: Math.round(v) }); else e.target.value = String(w.bank_cap); }} /></Field>
+          <Field label={t('Daily limit')}><input type="number" min={0} max={600} defaultValue={w.daily_earn_cap} onBlur={(e) => { const v = e.target.value.trim() === '' ? NaN : Number(e.target.value); if (Number.isFinite(v) && v >= 0 && v !== w.daily_earn_cap) void patch({ daily_earn_cap: Math.round(v) }); else e.target.value = String(w.daily_earn_cap); }} /></Field>
         </div>
       </Section>
 
@@ -142,7 +149,7 @@ export function Practice() {
           {w.sessions.slice(0, 8).map((s) => (
             <div key={s.id} className="row between small" style={{ padding: '4px 0' }}>
               <span>{GATE_APP_LABEL[s.app]}</span>
-              <span className="muted">{s.started_at.slice(5, 16).replace('T', ' ')}</span>
+              <span className="muted">{fmtLocal(s.started_at)}</span>
               <span>{s.ended_at ? `−${s.minutes < 1 ? '<1' : Math.round(s.minutes)}` : '…'}</span>
             </div>
           ))}
@@ -175,15 +182,17 @@ function ReadingRunner({ test, onClose, onDone }: { test: ReadingTest; onClose: 
   const [result, setResult] = useState<ReadingResult | null>(null);
 
   useEffect(() => {
+    if (result) return; // freeze the clock once the test is checked
     const t = setInterval(() => setSec(Math.floor((Date.now() - startedAt.current) / 1000)), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [result]);
 
   const limit = (test.minutes + 10) * 60;
   const answered = answers.filter(Boolean).length;
   const set = (i: number, v: string) => setAnswers((a) => a.map((x, j) => (j === i ? v : x)));
 
   const submit = async () => {
+    if (busy) return;
     setBusy(true);
     try {
       const r = await api.submitReading({ test_id: test.id, seconds: sec, answers });
