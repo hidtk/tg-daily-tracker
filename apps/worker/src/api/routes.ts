@@ -184,8 +184,14 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     if (patch.tz && !isValidTz(patch.tz)) throw new HttpError(400, 'Invalid timezone');
     const extra: Record<string, unknown> = {};
     if (patch.ielts_exam_date !== undefined && patch.ielts_exam_date !== user.ielts_exam_date) {
-      if (user.ielts_deadline_changed_on === today) throw new HttpError(429, 'The exam date can be changed once a day');
-      extra.ielts_deadline_changed_on = today;
+      // Only postponing is rate-limited: moving the date later or removing it. Setting it or moving it earlier is free.
+      const old = user.ielts_exam_date;
+      const next = patch.ielts_exam_date;
+      const postpone = old !== null && (next === null || next > old);
+      if (postpone) {
+        if (user.ielts_deadline_changed_on === today) throw new HttpError(429, 'The exam date was already moved later today — try tomorrow');
+        extra.ielts_deadline_changed_on = today;
+      }
     }
     await repo.updateUser(user.id, { ...patch, ...extra });
     return json(settingsView((await repo.getUserByTg(user.tg_id))!, env, today));
