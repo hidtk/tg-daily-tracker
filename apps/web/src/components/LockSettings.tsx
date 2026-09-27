@@ -44,40 +44,54 @@ function pickWords(n: number): VocabWord[] {
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
-/** A deliberate speed bump: translate a few words before you can weaken the lock. */
+/**
+ * A deliberate speed bump: translate a few words before you can weaken the lock.
+ * Forgiving: a correct word stays solved; only the missed ones are swapped for new words.
+ */
 function WordChallenge({ onPass }: { onPass: () => void }) {
   const t = useT();
   const { lang } = useLang();
   const ru = lang === 'ru';
   const [words, setWords] = useState(() => pickWords(CHALLENGE_SIZE));
   const [answers, setAnswers] = useState<string[]>(() => words.map(() => ''));
-  const [checked, setChecked] = useState(false);
-  const ok = words.map((w, i) => norm(answers[i]) === w.word);
+  const [solved, setSolved] = useState<boolean[]>(() => words.map(() => false));
+  /** For a slot whose word was missed: the word it replaced, to show the right answer. */
+  const [missed, setMissed] = useState<(VocabWord | null)[]>(() => words.map(() => null));
 
   const check = () => {
-    setChecked(true);
-    if (ok.every(Boolean)) {
+    const nowSolved = words.map((w, i) => solved[i] || norm(answers[i]) === w.word);
+    if (nowSolved.every(Boolean)) {
+      setSolved(nowSolved);
       haptic.success();
       unlockedUntil = Date.now() + UNLOCK_MS;
       onPass();
-    } else haptic.warning();
-  };
-  const retry = () => {
-    const next = pickWords(CHALLENGE_SIZE);
-    setWords(next);
-    setAnswers(next.map(() => ''));
-    setChecked(false);
+      return;
+    }
+    haptic.warning();
+    // Replace only the wrong words with fresh ones (not already on screen).
+    const pool = pickWords(CHALLENGE_SIZE * 4).filter((x) => !words.some((w) => w.id === x.id));
+    const nextWords = words.map((w, i) => (nowSolved[i] ? w : pool.shift() ?? w));
+    setMissed(words.map((w, i) => (nowSolved[i] ? null : w)));
+    setWords(nextWords);
+    setAnswers(answers.map((a, i) => (nowSolved[i] ? a : '')));
+    setSolved(nowSolved);
   };
 
+  const left = solved.filter((x) => !x).length;
   return (
     <>
       <p className="muted small">
         {ru
-          ? 'Чтобы изменить блокировку, переведи три слова на английский. Пока вспоминаешь, импульс «сейчас всё отключу» обычно проходит.'
-          : 'To change the lock, translate three words into English. By the time you remember them, the “just switch it all off” impulse usually passes.'}
+          ? 'Чтобы изменить блокировку, переведи три слова на английский. Верные слова засчитываются, ошибёшься — заменим только это слово.'
+          : 'To change the lock, translate three words into English. Correct words count; miss one and only that word is replaced.'}
       </p>
       {words.map((w, i) => (
-        <div key={w.id} className={`challenge-row${checked ? (ok[i] ? ' ok' : ' bad') : ''}`}>
+        <div key={`${i}-${w.id}`} className={`challenge-row${solved[i] ? ' ok' : ''}`}>
+          {missed[i] && !solved[i] && (
+            <div className="challenge-answer">
+              {Icon.cross(16)} {missed[i]!.ru} — <b>{missed[i]!.word}</b>, {ru ? 'новое слово:' : 'new word:'}
+            </div>
+          )}
           <div className="challenge-ru">{w.ru}</div>
           <div className="muted tiny">
             {w.pos} · {ru ? 'начинается на' : 'starts with'} «{w.word[0]}» · {w.word.length} {ru ? 'букв' : 'letters'}
@@ -88,23 +102,16 @@ function WordChallenge({ onPass }: { onPass: () => void }) {
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
-            disabled={checked && ok[i]}
-            onChange={(e) => { setChecked(false); setAnswers((a) => a.map((x, j) => (j === i ? e.target.value : x))); }}
+            disabled={solved[i]}
+            onChange={(e) => setAnswers((a) => a.map((x, j) => (j === i ? e.target.value : x)))}
             onKeyDown={(e) => { if (e.key === 'Enter') check(); }}
           />
-          {checked && !ok[i] && (
-            <div className="challenge-answer">
-              {Icon.cross(16)} {ru ? 'Правильно:' : 'Correct:'} <b>{w.word}</b>
-            </div>
-          )}
+          {solved[i] && <div className="challenge-ok">{Icon.check(16)} {ru ? 'Засчитано' : 'Counted'}</div>}
         </div>
       ))}
-      <div className="row" style={{ gap: 12, marginTop: 8 }}>
-        {checked && !ok.every(Boolean) ? (
-          <button className="btn solid" onClick={retry}>{ru ? 'Другие слова' : 'New words'}</button>
-        ) : (
-          <button className="btn solid" disabled={answers.some((a) => !a.trim())} onClick={check}>{t('Check')}</button>
-        )}
+      <div className="row" style={{ gap: 12, marginTop: 8, alignItems: 'center' }}>
+        <button className="btn solid" disabled={words.some((_, i) => !solved[i] && !answers[i].trim())} onClick={check}>{t('Check')}</button>
+        {left < CHALLENGE_SIZE && <span className="muted small">{ru ? `Осталось: ${left}` : `Left: ${left}`}</span>}
       </div>
     </>
   );
