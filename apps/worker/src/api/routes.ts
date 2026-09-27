@@ -349,6 +349,11 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     const rewarded = await repo.rewardedTestIds(user.id);
     const earnedToday = await repo.earnedOn(user.id, today);
     const balance = await repo.balance(user.id);
+    // A first attempt that could not pay anything would burn the test (answers are shown). Keep it for later.
+    if (!rewarded.includes(test.id) && w.wallet_enabled) {
+      if (earnedToday >= w.daily_earn_cap) throw new HttpError(409, 'Daily limit reached — this test will pay tomorrow');
+      if (balance >= w.bank_cap) throw new HttpError(409, 'The bank is full — spend some minutes first');
+    }
     const credit = creditForAttempt({
       band,
       seconds: body.seconds,

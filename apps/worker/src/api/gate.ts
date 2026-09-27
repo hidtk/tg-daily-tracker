@@ -28,7 +28,7 @@ export async function closeSession(
 ): Promise<number> {
   const elapsed = Math.min(minutesBetween(session.started_at, now), WALLET_SESSION_MAX_MIN);
   const spent = Math.round(elapsed * 10) / 10;
-  await repo.endSession(session.id, spent);
+  if (!(await repo.endSession(session.id, spent))) return 0; // already settled by a parallel request
   if (spent > 0) {
     const w = walletSettings(user);
     await repo.addMinutes(user.id, todayInTz(user.tz, now), -spent, 'spend', session.app, w.bank_cap);
@@ -52,20 +52,40 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
   const app: GateApp = appParsed.success ? appParsed.data : 'other';
   const event = url.searchParams.get('e') ?? 'open';
 
+  const open = await repo.openSession(user.id);
+
+  // status: read-only. Report what would be left if the running session ended now.
+  if (event === 'status') {
+    const running = open ? Math.min(minutesBetween(open.started_at, now), WALLET_SESSION_MAX_MIN) : 0;
+    const left = (await repo.balance(user.id)) - running;
+    return text(`${left >= 1 ? 'ALLOW' : 'BLOCK'} ${Math.max(0, Math.floor(left))}`);
+  }
+
+  // When switching apps iOS may deliver "B opened" before "A closed". A close that arrives
+  // within a few seconds of a session start belongs to the previous app — keep the new session.
+  const justStarted = open && minutesBetween(open.started_at, now) * 60 < 5;
+  if (event === 'close' && justStarted) {
+    const balance = await repo.balance(user.id);
+    return text(`${balance >= 1 ? 'ALLOW' : 'BLOCK'} ${Math.floor(balance)}`);
+  }
+
   // Any still-open session is settled first: on `close` it is the one we are closing,
   // on `open` it is a previous session whose close event never arrived.
-  const open = await repo.openSession(user.id);
   if (open) await closeSession(repo, user, open, now);
 
   let balance = await repo.balance(user.id);
 
-  if (event === 'close' || event === 'status') {
+  if (event === 'close') {
     return text(`${balance >= 1 ? 'ALLOW' : 'BLOCK'} ${Math.floor(balance)}`);
   }
 
   // event === 'open'
   if (!w.wallet_enabled) return text(`ALLOW ${Math.floor(balance)}\nwallet off`);
   if (!anyApp && !w.apps.includes(app)) return text(`ALLOW ${Math.floor(balance)}\nnot gated`);
+  // A paid NextDNS window is running: that time is already charged — don't charge it twice.
+  if (user.lock_state === 'open' && user.lock_until && Date.parse(user.lock_until) > now.getTime()) {
+    return text(`ALLOW ${Math.floor(balance)}\nunlock window`);
+  }
 
   if (balance < 1) {
     if (env.BOT_TOKEN) {
