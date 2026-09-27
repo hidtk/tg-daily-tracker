@@ -220,3 +220,14 @@ select { appearance: none; -webkit-appearance: none; }
 .cal { font-variant-numeric: lining-nums; }
 .cal-nav .btn.link { font-size: 22px; text-decoration: none; line-height: 1; padding: 0 8px; }
 .sheet .timer { top: -18px; padding-top: 26px; }
+
+/* Shortcuts guide */
+.copy-url { margin-bottom: 12px; }
+.copy-url .gate-url { margin: 4px 0 8px; user-select: all; -webkit-user-select: all; }
+.sc-step { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.sc-step:last-of-type { border-bottom: 0; }
+.sc-num { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-text); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.sc-body { flex: 1; min-width: 0; line-height: 1.45; }
+.sc-title { font-weight: 600; margin-bottom: 2px; }
+.sc-action { font-weight: 600; color: var(--accent); }
+.sc-body code, .steps code { font-family: ui-monospace, Menlo, monospace; font-size: 0.95em; padding: 1px 5px; border-radius: 4px; background: var(--rule); }
