@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Entry, Skill, TodayResponse } from '@tracker/shared';
+import type { Entry, Skill, TodayResponse, WalletResponse } from '@tracker/shared';
 import { MINUTE_PRESETS, NOTE_MAX, SKILLS, SKILL_LABEL, addDays, diffDays, isEditable } from '@tracker/shared';
 import { api, ApiError } from '../api';
 import { haptic, tg, inTelegram } from '../tg';
 import { useToast } from '../components/Toast';
 import { Section, fmtDate } from '../components/ui';
 import { useLang, useT } from '../i18n';
-import { Mascot } from '../components/Mascot';
+import { Icon, Mascot } from '../components/Mascot';
 
 type DraftEntry = Omit<Entry, 'updated_at' | 'proofs'>;
 const draftKey = (date: string) => `draft:${date}`;
@@ -24,7 +24,38 @@ function loadDraft(date: string): DraftEntry | null {
   }
 }
 
-export function Today({ isNew }: { isNew: boolean }) {
+/** Social-media minutes: the first thing on the home screen. */
+function MinutesCard({ onEarn }: { onEarn?: () => void }) {
+  const t = useT();
+  const [w, setW] = useState<WalletResponse | null>(null);
+  useEffect(() => {
+    api.wallet().then(setW).catch(() => undefined);
+  }, []);
+  if (!w) return <div className="section minutes-card"><span className="spinner" style={{ margin: '18px auto' }} /></div>;
+  const bal = Math.floor(w.balance);
+  const open = w.lock.state === 'open';
+  return (
+    <div className="section minutes-card">
+      <div className="row between" style={{ alignItems: 'flex-end' }}>
+        <div>
+          <div className="label" style={{ marginBottom: 4 }}>{t('Social-media minutes')}</div>
+          <div className="balance">{bal}<span>{t('min')}</span></div>
+        </div>
+        <span style={{ color: bal < 1 ? 'var(--ink-muted)' : 'var(--primary)' }}>{Icon.gems(40)}</span>
+      </div>
+      <div className="muted small" style={{ marginTop: 6 }}>
+        {open
+          ? t('Open · {n} min left', { n: w.lock.remaining_min })
+          : bal < 1
+            ? t('Social media is locked. Pass a Reading test to open it.')
+            : t('Earned today {a} · {b} more possible', { a: w.earned_today, b: w.earn_left })}
+      </div>
+      {onEarn && <button className="btn solid block" style={{ marginTop: 12 }} onClick={() => { haptic.tap(); onEarn(); }}>{bal < 1 ? t('Earn minutes') : t('Earn more')}</button>}
+    </div>
+  );
+}
+
+export function Today({ isNew, onEarn }: { isNew: boolean; onEarn?: () => void }) {
   const toast = useToast();
   const t = useT();
   const { lang } = useLang();
@@ -148,6 +179,8 @@ export function Today({ isNew }: { isNew: boolean }) {
         {!data.editable && ` · ${t('read-only')}`}
       </div>
 
+      <MinutesCard onEarn={onEarn} />
+
       {isNew && (
         <Mascot size={88} message={t('Welcome. Each morning you get five words and a task; in the evening, log what you did here. Lessons, homework and the exam date are in Settings.')} />
       )}
@@ -181,7 +214,7 @@ export function Today({ isNew }: { isNew: boolean }) {
         </Section>
       )}
 
-      <Section label={t('Practice')}>
+      <Section label={t('Log the day')}>
         <div className="marks">
           <button type="button" className={`mark ${e.planned ? 'on' : ''}`} disabled={!data.editable} onClick={() => { haptic.tap(); update({ planned: !e.planned }); }}>{t('Planned')}</button>
           <button type="button" className={`mark ${e.done ? 'on' : ''}`} disabled={!data.editable} onClick={() => { e.done ? haptic.tap() : haptic.success(); update({ done: !e.done, skipped: false }); }}>{t('Done')}</button>
