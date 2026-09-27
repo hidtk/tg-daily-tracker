@@ -9,7 +9,9 @@ const RU: Record<string, string> = {
   'Close': 'Закрыть', 'Save': 'Сохранить', 'Saved': 'Сохранено', 'Saving…': 'Сохраняю…', 'Error': 'Ошибка', 'Could not load': 'Не удалось загрузить',
   'Could not save': 'Не удалось сохранить', 'Could not connect': 'Не удалось подключиться', 'Open the app from Telegram': 'Откройте приложение из Telegram',
   'Open the app from the button in the chat with the bot.': 'Откройте приложение кнопкой в чате с ботом.',
-  'Delete': 'Удалить', 'Deleted': 'Удалено', 'Add': 'Добавить', 'Copied': 'Скопировано', 'Copy it by hand': 'Скопируй вручную', 'Copy': 'Скопировать', 'Open social media': 'Открыть соцсети',
+  'Delete': 'Удалить', 'Deleted': 'Удалено', 'Add': 'Добавить', 'Copied': 'Скопировано', 'Copy it by hand': 'Скопируй вручную', 'Copy': 'Скопировать', 'Remove the exam date': 'Убрать дату экзамена',
+  'The exam date can be moved later once a day — so it stays a deadline, not a wish. Moving it earlier is always allowed.': 'Перенести дату позже можно раз в день — чтобы она оставалась дедлайном, а не пожеланием. Раньше — в любой момент.',
+  'The date was already moved later today. Moving it later (or removing it) is possible tomorrow; earlier — right now.': 'Сегодня дату уже переносили позже. Перенести дальше или убрать — завтра, раньше — можно сейчас.', 'Open social media': 'Открыть соцсети',
   'With the Shortcuts lock, apps open by themselves while you have minutes. The lock itself is set up in Settings → Social-media lock.': 'С блокировкой через «Команды» приложения открываются сами, пока есть минуты. Саму блокировку настраивают в Настройках → «Блокировка соцсетей».', 'Great work!': 'Отличная работа!', 'Almost! Try again.': 'Почти! Попробуй ещё.',
   'iPhone: block with Shortcuts': 'iPhone: блокировка через «Команды»', 'Step-by-step guide': 'Пошаговая инструкция',
   'No NextDNS needed: the Shortcuts app closes {apps} when you have no minutes and counts the time you spend. About 5 minutes to set up, once.':
