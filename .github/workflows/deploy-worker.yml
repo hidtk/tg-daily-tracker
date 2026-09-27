@@ -5,7 +5,8 @@ name: Deploy (Worker + Mini App)
 #   BOT_TOKEN             — from @BotFather
 #   SESSION_SECRET        — any long random string
 # Optional secrets: CLOUDFLARE_ACCOUNT_ID (auto-detected), D1_DATABASE_ID (auto-created by name)
-# Optional variables: BOT_USERNAME (without @)
+# Optional variables: BOT_USERNAME (without @) — read from Telegram when unset
+# SESSION_SECRET: letters, digits, _ and - only (it doubles as the webhook secret), e.g. openssl rand -hex 32
 
 on:
   push:
@@ -85,6 +86,18 @@ jobs:
           echo "::error::Could not register a workers.dev subdomain. Register one in the Cloudflare dashboard (Workers & Pages → Overview) and re-run."
           exit 1
 
+      - name: Resolve bot username
+        id: bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          NAME="${{ vars.BOT_USERNAME }}"
+          if [ -z "$NAME" ] && [ -n "$BOT_TOKEN" ]; then
+            NAME=$(curl -s "https://api.telegram.org/bot$BOT_TOKEN/getMe" | jq -r '.result.username // empty')
+          fi
+          [ -n "$NAME" ] || echo "::warning::BOT_USERNAME is not set and could not be read from Telegram; partner links will not work."
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
       - name: Deploy Worker
         id: deploy
         working-directory: apps/worker
@@ -92,7 +105,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.acct.outputs.id }}
         run: |
           set +e
-          npx wrangler deploy --var BOT_USERNAME:"${{ vars.BOT_USERNAME }}" 2>&1 | tee deploy.log
+          npx wrangler deploy --var BOT_USERNAME:"${{ steps.bot.outputs.name }}" 2>&1 | tee deploy.log
           RC=${PIPESTATUS[0]}
           set -e
           if [ "$RC" != "0" ]; then
@@ -103,7 +116,7 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "::notice::Deployed to $URL"
           # WEBAPP_URL is needed by cron messages (no request origin there); set it now that we know the URL.
-          npx wrangler deploy --var BOT_USERNAME:"${{ vars.BOT_USERNAME }}" --var WEBAPP_URL:"$URL" > /dev/null
+          npx wrangler deploy --var BOT_USERNAME:"${{ steps.bot.outputs.name }}" --var WEBAPP_URL:"$URL" > /dev/null
 
       - name: Set Worker secrets
         if: env.HAS_BOT_TOKEN == 'true'
