@@ -14,6 +14,11 @@ if (!baseUrl || !BOT_TOKEN || !SESSION_SECRET) {
   process.exit(1);
 }
 const base = baseUrl.replace(/\/$/, '');
+// Telegram accepts only A-Z a-z 0-9 _ - (1–256 chars) as the webhook secret_token.
+if (!/^[A-Za-z0-9_-]{1,256}$/.test(SESSION_SECRET)) {
+  console.error('SESSION_SECRET may contain only letters, digits, "_" and "-" (it is also the Telegram webhook secret). Generate one with: openssl rand -hex 32');
+  process.exit(1);
+}
 
 async function call(method, body) {
   const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
@@ -26,7 +31,11 @@ async function call(method, body) {
   return j;
 }
 
-await call('setWebhook', { url: `${base}/bot/webhook`, secret_token: SESSION_SECRET, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true });
+const hook = await call('setWebhook', { url: `${base}/bot/webhook`, secret_token: SESSION_SECRET, allowed_updates: ['message', 'callback_query'], drop_pending_updates: false });
+if (!hook.ok) {
+  console.error('Webhook was not set — the bot will not answer. Fix the error above and run again.');
+  process.exit(1);
+}
 await call('setChatMenuButton', { menu_button: { type: 'web_app', text: 'IELTS', web_app: { url: base } } });
 await call('setMyCommands', {
   commands: [
