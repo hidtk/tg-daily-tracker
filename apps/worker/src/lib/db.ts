@@ -434,6 +434,32 @@ export class Repo {
       .run();
   }
 
+  /** What was actually done in the app on a date (source for the automatic day log). */
+  async activityOn(userId: number, date: string, maxSecondsPerTest: number) {
+    const [r, v, s] = await this.db.batch([
+      this.db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(MIN(seconds, ?3)), 0) AS sec FROM reading_attempts WHERE user_id = ?1 AND date = ?2').bind(userId, date, maxSecondsPerTest),
+      this.db.prepare('SELECT COUNT(*) AS n FROM vocab_reviews WHERE user_id = ? AND date = ?').bind(userId, date),
+      this.db.prepare('SELECT COUNT(*) AS n FROM vocab_sentences WHERE user_id = ? AND date = ?').bind(userId, date),
+    ]);
+    const first = (x: D1Result) => (x.results?.[0] ?? {}) as { n?: number; sec?: number };
+    return { readingTests: first(r).n ?? 0, readingSeconds: first(r).sec ?? 0, reviews: first(v).n ?? 0, sentences: first(s).n ?? 0 };
+  }
+
+  /** Automatic day entry: done, with minutes and skills computed from app activity. */
+  async autoEntry(userId: number, activityId: number, date: string, minutes: number, skills: string[]) {
+    await this.db
+      .prepare(
+        `INSERT INTO entries (user_id, activity_id, date, planned, done, minutes, skills)
+         VALUES (?, ?, ?, 0, 1, ?, ?)
+         ON CONFLICT(activity_id, date) DO UPDATE SET
+           done = 1, skipped = 0, skip_reason = NULL, minutes = excluded.minutes, skills = excluded.skills,
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE entries.user_id = excluded.user_id`,
+      )
+      .bind(userId, activityId, date, minutes, JSON.stringify(skills))
+      .run();
+  }
+
   async setMinutes(userId: number, activityId: number, date: string, minutes: number) {
     await this.db
       .prepare(`UPDATE entries SET minutes = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id = ? AND activity_id = ? AND date = ?`)

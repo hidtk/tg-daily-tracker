@@ -1,3 +1,4 @@
+import { syncDaySafe } from './autolog';
 import { REVIEW_INTERVALS, VOCAB, addDays, vocabById, type VocabCard, type VocabResponse } from '@tracker/shared';
 import type { Repo, UserRow, VocabRow } from './db';
 
@@ -41,5 +42,6 @@ export async function reviewWord(repo: Repo, user: UserRow, wordId: number, ok: 
   const interval = ok ? REVIEW_INTERVALS[stage] ?? REVIEW_INTERVALS[REVIEW_INTERVALS.length - 1] : 1;
   const next = addDays(today, interval);
   await repo.vocabRecordReview(user.id, wordId, ok, today, stage, next);
+  await syncDaySafe(repo, user, today);
   return toCard({ ...row, stage, next_review: next, reviews: row.reviews + 1, lapses: row.lapses + (ok ? 0 : 1), last_reviewed: today });
 }

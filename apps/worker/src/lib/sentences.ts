@@ -1,3 +1,4 @@
+import { syncDaySafe } from './autolog';
 import { SENTENCES_PER_DAY, SENTENCE_MINUTES, VOCAB, checkSentence, vocabById, type SentenceState } from '@tracker/shared';
 import { Repo, walletSettings, type UserRow } from './db';
 
@@ -36,6 +37,7 @@ export async function submitSentence(repo: Repo, user: UserRow, today: string, w
   const check = checkSentence(w.word, w.example, text);
   if (!check.ok) return { ok: false, reason: check.reason, earned: 0, state: await sentenceState(repo, user, today) };
   await repo.addSentence(user.id, wordId, today, text.trim());
+  await syncDaySafe(repo, user, today);
   const ws = walletSettings(user);
   // Sentences have their own daily cap; only the bank cap applies here.
   await repo.addMinutes(user.id, today, SENTENCE_MINUTES, 'sentence', w.word, ws.bank_cap);
