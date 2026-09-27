@@ -40,7 +40,7 @@ import { computeStreaks, heatmapForRange, ieltsStats } from '../lib/stats';
 import { reviewWord, vocabState } from '../lib/vocab';
 import { sentenceState, submitSentence } from '../lib/sentences';
 import { analytics } from '../lib/analytics';
-import { configureLock, lockNow, lockState, removeLock, unlock } from '../lib/lock';
+import { configureLock, lockCheck, lockNow, lockState, removeLock, unlock } from '../lib/lock';
 
 export function settingsView(u: UserRow, env: Env, today: string): SettingsView {
   return {
@@ -293,6 +293,11 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     Object.assign(user, await repo.getUserById(user.id));
     return json(await walletView(repo, user, env, today));
   }
+  if (path === '/lock/check' && method === 'GET') {
+    const r = await lockCheck(repo, user);
+    return json(r);
+  }
+
   if (path === '/lock/close' && method === 'POST') {
     const r = await lockNow(repo, user, true);
     if (!r.ok) throw new HttpError(400, r.error ?? 'NextDNS error');
