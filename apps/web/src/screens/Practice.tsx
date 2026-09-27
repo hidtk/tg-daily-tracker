@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast';
 import { Field, Section, Sheet, Toggle } from '../components/ui';
 import { useT } from '../i18n';
 import { ShortcutsGuide } from '../components/ShortcutsGuide';
+import { Mascot } from '../components/Mascot';
 
 const ALL_APPS: GateApp[] = ['instagram', 'tiktok', 'youtube', 'vk'];
 
@@ -201,6 +202,7 @@ function ReadingRunner({ test, onClose, onDone }: { test: ReadingTest; onClose: 
     return (
       <Sheet title={t('Result')} onClose={onClose}>
         <div className="center">
+          <div className="el-mascot center"><Mascot size={96} message={result.earned ? t('Great work!') : t('Almost! Try again.')} /></div>
           <div className="result-band">{result.band.toFixed(1)}</div>
           <div className="muted">{result.correct} {t('of')} {result.total} · {fmtClock(sec)}</div>
           <div className={`result-earn${result.earned ? '' : ' zero'}`}>{result.earned ? `+${result.earned} ${t('min')}` : t('no minutes')}</div>

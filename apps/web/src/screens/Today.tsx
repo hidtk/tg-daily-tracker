@@ -6,6 +6,7 @@ import { haptic, tg, inTelegram } from '../tg';
 import { useToast } from '../components/Toast';
 import { Section, fmtDate } from '../components/ui';
 import { useLang, useT } from '../i18n';
+import { Mascot } from '../components/Mascot';
 
 type DraftEntry = Omit<Entry, 'updated_at' | 'proofs'>;
 const draftKey = (date: string) => `draft:${date}`;
@@ -148,9 +149,7 @@ export function Today({ isNew }: { isNew: boolean }) {
       </div>
 
       {isNew && (
-        <Section>
-          <p>{t('Welcome. Each morning you get five words and a task; in the evening, log what you did here. Lessons, homework and the exam date are in Settings.')}</p>
-        </Section>
+        <Mascot size={88} message={t('Welcome. Each morning you get five words and a task; in the evening, log what you did here. Lessons, homework and the exam date are in Settings.')} />
       )}
 
       {(data.lessons_today.length > 0 || data.homeworks.length > 0) && (
