@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    IELTS trainer — design system «Элвис» (claude.ai/artifact/4SyRM1SUN2BEcydzSEZVnF).
-   Blue / light-blue UI, Nunito, pressable elements on a solid bottom edge,
-   warm colours only for signals. Tokens copied from tokens.json.
+   Blue / light-blue UI, Nunito, matte 3D pressable elements (soft top-lit gradient ≤14%,
+   inner bevel, solid bottom edge + wide diffuse shadow, no gloss), warm colours only for signals. Tokens copied from tokens.json.
 ------------------------------------------------------------------ */
 
 :root, :root[data-theme='light'] {
@@ -14,7 +14,8 @@
   --success: #0b7d6e; --success-edge: #075c51; --success-bg: #dff5f1; --success-ink: #075c51; --on-success: #ffffff;
   --error: #c73d22; --error-edge: #932c17; --error-bg: #ffece6; --error-ink: #932c17; --on-error: #ffffff;
   --streak: #ffb020; --disabled-bg: #e4ebf3; --disabled-ink: #4f6480;
-  --edge-primary: 0 4px 0 #0d4ea6; --edge-tile: 0 2px 0 #9fc4ec; --edge-success: 0 4px 0 #075c51; --edge-error: 0 4px 0 #932c17;
+  --edge-primary: 0 4px 0 #0d4ea6, 0 10px 18px rgba(13,78,166,0.22); --edge-tile: 0 2px 0 #9fc4ec, 0 6px 12px rgba(13,78,166,0.10);
+  --edge-success: 0 4px 0 #075c51, 0 10px 18px rgba(7,92,81,0.22); --edge-error: 0 4px 0 #932c17, 0 10px 18px rgba(147,44,23,0.22);
   --link-ink: #0d4ea6;
 }
 :root[data-theme='dark'] {
@@ -26,7 +27,8 @@
   --success: #3dd6c3; --success-edge: #1fa896; --success-bg: #0e2e3a; --success-ink: #3dd6c3; --on-success: #04214a;
   --error: #ff8a6b; --error-edge: #e0603f; --error-bg: #3a1a14; --error-ink: #ff8a6b; --on-error: #2a0e08;
   --streak: #ffc14d; --disabled-bg: #1c2d48; --disabled-ink: #8ea0ba;
-  --edge-primary: 0 4px 0 #2f86e6; --edge-tile: 0 2px 0 #335a8f; --edge-success: 0 4px 0 #1fa896; --edge-error: 0 4px 0 #e0603f;
+  --edge-primary: 0 4px 0 #2f86e6, 0 10px 18px rgba(0,0,0,0.35); --edge-tile: 0 2px 0 #335a8f, 0 6px 12px rgba(0,0,0,0.30);
+  --edge-success: 0 4px 0 #1fa896, 0 10px 18px rgba(0,0,0,0.35); --edge-error: 0 4px 0 #e0603f, 0 10px 18px rgba(0,0,0,0.35);
   --link-ink: #5aaeff;
 }
 :root {
@@ -372,3 +374,28 @@ input:focus, select:focus, textarea:focus { box-shadow: none; border-color: var(
 .el-bubble::before { content: ''; position: absolute; left: -9px; bottom: 18px; width: 14px; height: 14px; background: var(--surface-raised); border-left: 2px solid var(--border); border-bottom: 2px solid var(--border); transform: rotate(45deg); }
 .el-mascot.center { justify-content: center; }
 input::placeholder, textarea::placeholder { color: var(--ink-muted); opacity: 0.7; font-weight: 600; }
+
+/* ==================================================================
+   «Элвис» matte 3D — light from above: slightly lighter top, darker bottom,
+   thin inner bevel, solid edge + diffuse shadow. No highlights, no gloss.
+================================================================== */
+:root { --bevel-tile: inset 0 -2px 2px rgba(11, 31, 63, 0.05); --bevel-solid: inset 0 2px 1px rgba(255, 255, 255, 0.22), inset 0 -3px 2px rgba(0, 0, 0, 0.10); --matte-solid: linear-gradient(180deg, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 55%, rgba(0,0,0,.08) 100%); --matte-tile: linear-gradient(180deg, rgba(255,255,255,.06), rgba(11,31,63,.04)); }
+.btn, .chip, .mark, .opt, .section, .el-bubble { background-image: var(--matte-tile); box-shadow: var(--bevel-tile), var(--edge-tile); }
+.btn.solid, .mark.on { background-image: var(--matte-solid); box-shadow: var(--bevel-solid), var(--edge-primary); }
+.btn.danger { box-shadow: var(--bevel-tile), 0 2px 0 var(--error), 0 6px 12px rgba(199, 61, 34, 0.14); }
+.chip.on, .opt.on { box-shadow: var(--bevel-tile), 0 2px 0 var(--primary), 0 6px 12px rgba(22, 104, 227, 0.14); }
+.mark.on.skip { background-image: var(--matte-tile); box-shadow: var(--bevel-tile), 0 2px 0 var(--error), 0 6px 12px rgba(199, 61, 34, 0.14); }
+.btn:active:not(:disabled), .chip:active:not(:disabled), .mark:active, .opt:active { box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.12) !important; }
+.btn:active:not(:disabled), .chip:active:not(:disabled), .mark:active, .opt:active { transform: translateY(2px); }
+.btn.solid:active:not(:disabled), .mark.on:active { transform: translateY(4px); }
+.btn.link, .btn.link:active { background-image: none; box-shadow: none !important; transform: none; }
+.btn:disabled, .chip:disabled { background-image: none; box-shadow: none; }
+/* Sections are big surfaces: keep the edge, soften the diffuse shadow. */
+.section { box-shadow: var(--bevel-tile), 0 2px 0 var(--border-strong), 0 8px 20px rgba(13, 78, 166, 0.06); }
+:root[data-theme='dark'] .section { box-shadow: var(--bevel-tile), 0 2px 0 var(--border-strong), 0 8px 20px rgba(0, 0, 0, 0.25); }
+/* Progress: sunken track, raised fill */
+.progress-line i { box-shadow: inset 0 2px 3px rgba(11, 31, 63, 0.14); }
+.progress-line i::after { background-image: linear-gradient(180deg, rgba(255,255,255,.18), rgba(0,0,0,.10)); box-shadow: inset 0 -2px 2px rgba(0,0,0,.12); }
+.sc-num { background-image: var(--matte-solid); box-shadow: var(--bevel-solid), 0 2px 0 var(--primary-edge); }
+.el-mascot svg { filter: drop-shadow(0 6px 10px rgba(11, 31, 63, 0.10)); }
+.nav { box-shadow: 0 -6px 16px rgba(13, 78, 166, 0.06); }

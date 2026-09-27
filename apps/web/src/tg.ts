@@ -39,14 +39,11 @@ function applyTheme() {
     r.setProperty('--tg-theme-subtitle-text-color', p.subtitle); r.setProperty('--tg-theme-destructive-text-color', p.destructive);
     return;
   }
-  try {
-    // «Элвис» surface-tint, so the Telegram header blends with the page.
-    const bg = dark ? '#0e2140' : '#eef6ff';
-    tg.setHeaderColor(bg as `#${string}`);
-    tg.setBackgroundColor(bg as `#${string}`);
-  } catch {
-    /* noop */
-  }
+  // «Элвис» surface-tint, so the Telegram header blends with the page. Hex colours need Bot API 6.9+.
+  const bg = dark ? '#0e2140' : '#eef6ff';
+  const hex = typeof tg.isVersionAtLeast === 'function' && tg.isVersionAtLeast('6.9');
+  try { tg.setHeaderColor(hex ? (bg as `#${string}`) : 'secondary_bg_color'); } catch { /* old client */ }
+  try { tg.setBackgroundColor(hex ? (bg as `#${string}`) : 'secondary_bg_color'); } catch { /* old client */ }
 }
 
 export function initTelegram() {
