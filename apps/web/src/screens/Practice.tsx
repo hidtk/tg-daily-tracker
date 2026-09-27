@@ -5,6 +5,7 @@ import { haptic, tg } from '../tg';
 import { useToast } from '../components/Toast';
 import { Field, Section, Sheet, Toggle } from '../components/ui';
 import { useT } from '../i18n';
+import { ShortcutsGuide } from '../components/ShortcutsGuide';
 
 const ALL_APPS: GateApp[] = ['instagram', 'tiktok', 'youtube', 'vk'];
 
@@ -20,6 +21,7 @@ export function Practice() {
   const [err, setErr] = useState<string | null>(null);
   const [test, setTest] = useState<ReadingTest | null>(null);
   const [howto, setHowto] = useState(false);
+  const [shortcuts, setShortcuts] = useState(false);
 
   const load = () => api.wallet().then(setW).catch((e: unknown) => setErr(e instanceof ApiError ? e.message : t('Could not load')));
   useEffect(() => {
@@ -129,6 +131,11 @@ export function Practice() {
         </div>
       </Section>
 
+      <Section label={t('iPhone: block with Shortcuts')}>
+        <p className="muted small">{t('No NextDNS needed: the Shortcuts app closes {apps} when you have no minutes and counts the time you spend. About 5 minutes to set up, once.', { apps: w.apps.map((a) => GATE_APP_LABEL[a]).join(', ') || 'Instagram' })}</p>
+        <button className="btn solid" style={{ marginTop: 8 }} onClick={() => { haptic.tap(); setShortcuts(true); }}>{t('Step-by-step guide')}</button>
+      </Section>
+
       {w.sessions.length > 0 && (
         <Section label={t('Recent sessions')}>
           {w.sessions.slice(0, 8).map((s) => (
@@ -151,6 +158,7 @@ export function Practice() {
           }}
         />
       )}
+      {shortcuts && <ShortcutsGuide gateUrl={w.gate_url} apps={w.apps} onClose={() => setShortcuts(false)} />}
       {howto && <Howto url={w.gate_url} apps={w.apps} onClose={() => setHowto(false)} />}
     </div>
   );
