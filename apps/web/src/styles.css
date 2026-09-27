@@ -450,3 +450,6 @@ select { padding-right: 34px; background-image: linear-gradient(45deg, transpare
 .diag-help { padding: var(--space-3); background: var(--error-bg); color: var(--error-ink); border-radius: var(--radius-md); }
 .diag-help ol { margin: 6px 0 10px; padding-left: 20px; }
 .diag-help li { margin-bottom: 4px; }
+
+.vpn-steps { margin: 6px 0 8px; padding-left: 20px; }
+.vpn-steps li { margin: 4px 0; }
