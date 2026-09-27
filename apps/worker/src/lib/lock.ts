@@ -50,17 +50,20 @@ export async function removeLock(repo: Repo, user: UserRow) {
 /** Spend minutes now and open the apps for that long. */
 export async function unlock(repo: Repo, user: UserRow, minutes: number, now = new Date()): Promise<{ ok: boolean; error?: string }> {
   if (!user.nextdns_key || !user.nextdns_profile) return { ok: false, error: 'not_configured' };
-  const balance = await repo.balance(user.id);
-  if (balance < minutes) return { ok: false, error: 'insufficient' };
+  const today = todayInTz(user.tz, now);
+  // Charge first, atomically: two taps can't both spend the same minutes.
+  if (!(await repo.trySpend(user.id, today, minutes, 'unlock'))) return { ok: false, error: 'insufficient' };
   const r = await setLocked(user.nextdns_key, user.nextdns_profile, apps(user), false);
   if (!r.ok) {
+    const w = walletSettings(user);
+    await repo.addMinutes(user.id, today, minutes, 'manual', 'refund', w.bank_cap);
     await repo.updateUser(user.id, { lock_error: r.error ?? 'error' });
     return { ok: false, error: r.error };
   }
-  const today = todayInTz(user.tz, now);
-  const w = walletSettings(user);
-  await repo.addMinutes(user.id, today, -minutes, 'spend', 'unlock', w.bank_cap);
-  const until = new Date(now.getTime() + minutes * 60_000).toISOString();
+  // Already open: extend the paid window instead of throwing away what is left of it.
+  const stillOpen = user.lock_state === 'open' && user.lock_until ? Date.parse(user.lock_until) : 0;
+  const from = Math.max(now.getTime(), stillOpen || 0);
+  const until = new Date(from + minutes * 60_000).toISOString();
   await repo.updateUser(user.id, { lock_state: 'open', lock_until: until, lock_error: null });
   return { ok: true };
 }

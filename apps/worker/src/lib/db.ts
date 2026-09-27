@@ -593,11 +593,15 @@ export class Repo {
     return r?.b ?? 0;
   }
 
-  /** Apply a signed change to the balance, clamped to [0, cap], and write a ledger row. */
+  /**
+   * Apply a signed change to the balance and write a ledger row.
+   * Earnings are capped by the bank (never below what is already there); spends only floor at 0,
+   * so lowering the bank cap never wipes existing minutes.
+   */
   async addMinutes(userId: number, date: string, delta: number, reason: WalletLedgerEntry['reason'], note: string | null, cap: number): Promise<number> {
     await this.db
-      .prepare('UPDATE users SET sm_balance = MAX(0, MIN(?, sm_balance + ?)) WHERE id = ?')
-      .bind(cap, delta, userId)
+      .prepare('UPDATE users SET sm_balance = MAX(0, CASE WHEN ?1 > 0 THEN MIN(MAX(?2, sm_balance), sm_balance + ?1) ELSE sm_balance + ?1 END) WHERE id = ?3')
+      .bind(delta, cap, userId)
       .run();
     if (delta !== 0) {
       await this.db
@@ -608,17 +612,30 @@ export class Repo {
     return this.balance(userId);
   }
 
+  /** Atomically spend minutes if the balance covers them. Returns false (and writes nothing) otherwise. */
+  async trySpend(userId: number, date: string, minutes: number, note: string): Promise<boolean> {
+    const r = await this.db.prepare('UPDATE users SET sm_balance = sm_balance - ?1 WHERE id = ?2 AND sm_balance >= ?1').bind(minutes, userId).run();
+    if ((r.meta.changes ?? 0) === 0) return false;
+    await this.db
+      .prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)')
+      .bind(userId, date, -minutes, 'spend', note)
+      .run();
+    return true;
+  }
+
+  /** Minutes earned from Reading today — the only source the daily cap applies to. */
   async earnedOn(userId: number, date: string): Promise<number> {
     const r = await this.db
-      .prepare('SELECT COALESCE(SUM(delta), 0) AS s FROM wallet_ledger WHERE user_id = ? AND date = ? AND delta > 0')
+      .prepare("SELECT COALESCE(SUM(delta), 0) AS s FROM wallet_ledger WHERE user_id = ? AND date = ? AND delta > 0 AND reason = 'reading'")
       .bind(userId, date)
       .first<{ s: number }>();
     return r?.s ?? 0;
   }
 
+  /** Tests already taken at least once. Any attempt counts: the answers were shown, so a retake never pays. */
   async rewardedTestIds(userId: number): Promise<string[]> {
     const { results } = await this.db
-      .prepare('SELECT DISTINCT test_id FROM reading_attempts WHERE user_id = ? AND earned > 0')
+      .prepare('SELECT DISTINCT test_id FROM reading_attempts WHERE user_id = ?')
       .bind(userId)
       .all<{ test_id: string }>();
     return results.map((r) => r.test_id);
@@ -663,11 +680,13 @@ export class Repo {
     return Number(r.meta.last_row_id);
   }
 
-  async endSession(id: number, minutes: number) {
-    await this.db
-      .prepare(`UPDATE wallet_sessions SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), minutes = ? WHERE id = ?`)
+  /** Close a session once. Returns false if it was already closed (a concurrent request got there first). */
+  async endSession(id: number, minutes: number): Promise<boolean> {
+    const r = await this.db
+      .prepare(`UPDATE wallet_sessions SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), minutes = ? WHERE id = ? AND ended_at IS NULL`)
       .bind(minutes, id)
       .run();
+    return (r.meta.changes ?? 0) > 0;
   }
 
   async sessions(userId: number, limit = 20): Promise<WalletSession[]> {
