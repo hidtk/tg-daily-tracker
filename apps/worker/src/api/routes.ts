@@ -39,6 +39,7 @@ import { validateInitData } from '../lib/telegram';
 import { computeStreaks, heatmapForRange, ieltsStats } from '../lib/stats';
 import { reviewWord, vocabState } from '../lib/vocab';
 import { sentenceState, submitSentence } from '../lib/sentences';
+import { syncDaySafe } from '../lib/autolog';
 import { analytics } from '../lib/analytics';
 import { configureLock, lockCheck, lockNow, lockState, removeLock, unlock } from '../lib/lock';
 
@@ -377,6 +378,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     });
 
     await repo.addAttempt(user.id, { test_id: test.id, date: today, correct, total: test.questions.length, band, seconds: body.seconds, earned: credit.earned });
+    await syncDaySafe(repo, user, today);
     const newBalance = credit.earned ? await repo.addMinutes(user.id, today, credit.earned, 'reading', test.id, w.bank_cap) : balance;
 
     const res: ReadingResult = {
