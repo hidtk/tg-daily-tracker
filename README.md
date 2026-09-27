@@ -1,144 +1,195 @@
 # IELTS trainer — Telegram Mini App
 
-Личный тренажёр подготовки к IELTS внутри Telegram: слова по утрам с интервальным повторением, задание дня, напоминания о занятиях и домашке, Reading-тесты, статистика до экзамена. Интерфейс и бот — на английском (погружение). Без своего сервера — всё на бесплатных тарифах Cloudflare.
+[![Deploy](https://github.com/hidtk/tg-daily-tracker/actions/workflows/deploy-worker.yml/badge.svg)](https://github.com/hidtk/tg-daily-tracker/actions/workflows/deploy-worker.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Node 20+](https://img.shields.io/badge/node-%E2%89%A520-339933)
+![Cloudflare free tier](https://img.shields.io/badge/hosting-Cloudflare%20free-F38020)
 
-| Слой | Технология |
-|---|---|
-| Mini App | Vite + React + TypeScript, официальный `telegram-web-app.js`, цвета из темы Telegram, системный шрифт |
-| Backend + бот + cron | Cloudflare Workers (статика Mini App раздаётся тем же Worker'ом) |
-| База | Cloudflare D1 (SQLite) |
-| CI/CD | GitHub Actions → `wrangler deploy` по push в `main` |
+Личный тренажёр подготовки к IELTS прямо в Telegram: 5 новых слов каждое утро с интервальным повторением, задание дня, Reading-тесты с оценкой band, напоминания о занятиях и домашке, статистика до экзамена и «замок» соцсетей, который открывается минутами, заработанными на тестах.
 
-Все данные привязаны к `telegram_user_id`, авторизация — валидация `initData` по HMAC на Worker'е. Логинов и паролей нет.
+Свой сервер не нужен — всё работает на бесплатных тарифах Cloudflare. Установка занимает около 10 минут.
+
+**[⬇️ Скачать ZIP](https://github.com/hidtk/tg-daily-tracker/archive/refs/heads/main.zip)** · **[🍴 Fork](https://github.com/hidtk/tg-daily-tracker/fork)** · [Архитектура и API](docs/ARCHITECTURE.md)
+
+---
+
+## Содержание
+
+- [Возможности](#возможности)
+- [Что понадобится](#что-понадобится)
+- [Способ 1: через GitHub, ничего не ставя](#способ-1-через-github-ничего-не-ставя-рекомендуется)
+- [Способ 2: с компьютера одной командой](#способ-2-с-компьютера-одной-командой)
+- [Первые шаги в боте](#первые-шаги-в-боте)
+- [Обновление](#обновление)
+- [Частые проблемы](#частые-проблемы)
+- [Разработка](#разработка)
 
 ## Возможности
 
-- **Today**: план / сделал / осознанный пропуск с причиной, минуты и навыки за день, обратный отсчёт до экзамена, занятие и домашка на сегодня.
-- **Words**: 5 новых слов каждое утро (банк 150+ академических слов: транскрипция, значение, пример, перевод) и повторение по схеме 1 / 3 / 7 / 14 / 30 дней. Утром бот присылает слова и квиз «выбери значение» по тем, что пора повторить; в приложении — карточки «Knew it / Forgot».
-- **Задание дня**: банк из 40+ заданий (Writing T1/T2, Speaking cue cards, Reading, Listening, Grammar) по дням недели, `/task` в любой момент, кнопка «Done» засчитывает день.
-- **Занятия и домашка**: уроки с преподавателем (дни, время, таймзона) — напоминания утром и за N минут; `/hw текст` или фото с подписью «hw» — домашка привязывается к ближайшему занятию, утреннее задание подстраивается под неё.
-- **Practice**: Reading-мини-тесты (16 оригинальных текстов по 13 вопросов, band по официальной шкале; выдаются партиями по 4 — кнопка «Обновить библиотеку», пройденные уходят в архив и доступны для повтора) и кошелёк минут соцсетей: 5.0–5.5 → 10, 6.0 → 15, 6.5+ → 30 мин; плюс 1 минута за предложение с новым словом (до 40 в день, проверка по правилам). Неистраченное переносится с потолком.
-- **Замок соцсетей**: Instagram / TikTok / YouTube / VK блокируются на уровне DNS через NextDNS (бесплатно, официальный API): Worker закрывает/открывает домены, «Открыть на N минут» списывает минуты, cron раз в минуту закрывает истёкшие окна. На iPhone ставится профиль DNS-over-HTTPS с паролем на удаление (`/dns/<key>.mobileconfig`). Старый вариант через Shortcuts (`/gate/<key>`) оставлен.
-- **Progress**: календарь и стрик, пробные тесты с графиком band по секциям, минуты по неделям и навыкам, дисциплина.
-- **Партнёр по ответственности**: `/partner` → ссылка для друга или код для группы; ему уходят недельные итоги и пропуски.
-- Экспорт всех данных в JSON.
+| Раздел | Что делает |
+|---|---|
+| **Today** | План / сделал / осознанный пропуск с причиной, минуты и навыки за день, обратный отсчёт до экзамена, занятие и домашка на сегодня |
+| **Words** | 5 новых академических слов в день (банк 150+: транскрипция, значение, пример, перевод), повторение по схеме 1 / 3 / 7 / 14 / 30 дней, утренний квиз от бота |
+| **Задание дня** | 40+ заданий (Writing T1/T2, Speaking cue cards, Reading, Listening, Grammar) по дням недели, `/task` в любой момент |
+| **Занятия и домашка** | Расписание уроков с напоминаниями; `/hw текст` или фото с подписью «hw» привязывается к ближайшему занятию |
+| **Practice** | 16 Reading-мини-тестов по 13 вопросов с band по официальной шкале; кошелёк минут соцсетей за результаты |
+| **Замок соцсетей** | Instagram / TikTok / YouTube / VK закрываются, когда минут нет. На iPhone — через «Команды» (пошаговая инструкция прямо в приложении, *Practice → iPhone*) или DNS-замок NextDNS с профилем под паролем |
+| **Progress** | Календарь и стрик, пробные тесты с графиком band по секциям, минуты по неделям и навыкам |
+| **Партнёр** | `/partner` — другу или в группу уходят недельные итоги и пропуски |
 
-## Разверни себе за 15 минут
+Интерфейс переключается между русским и английским. Все данные можно выгрузить в JSON.
 
-Нужны: аккаунт Cloudflare (free) и аккаунт GitHub. Ничего ставить локально не надо — всё делает GitHub Actions.
+## Что понадобится
 
-1. **Бот.** В [@BotFather](https://t.me/BotFather): `/newbot` → сохрани токен и username.
-2. **Cloudflare API Token.** [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → Create Token → шаблон **Edit Cloudflare Workers** → в Permissions добавь **Account · D1 · Edit** → Continue → Create.
-3. **Форкни репозиторий** (или создай свой и запушь код).
-4. В репозитории **Settings → Secrets and variables → Actions** добавь secrets:
-   - `CLOUDFLARE_API_TOKEN` — из шага 2
-   - `BOT_TOKEN` — из шага 1
-   - `SESSION_SECRET` — любая длинная случайная строка (например `openssl rand -hex 32`)
+- Аккаунт **Telegram** — чтобы создать бота.
+- Аккаунт **Cloudflare** — бесплатный, [регистрация](https://dash.cloudflare.com/sign-up).
+- Для способа 1 — аккаунт **GitHub**. Для способа 2 — **[Node.js 20+](https://nodejs.org)** (LTS) на компьютере.
 
-   и variable `BOT_USERNAME` — username бота без `@`.
-5. **Actions → Deploy (Worker + Mini App) → Run workflow** (или просто сделай push в `main`).
+Сначала в любом случае создай бота: открой [@BotFather](https://t.me/BotFather) → `/newbot` → придумай имя и username → сохрани **токен** (вида `123456789:AAH...`).
 
-Workflow сам создаст базу D1, применит миграции, задеплоит Worker вместе с Mini App, положит секреты, поставит webhook и кнопку меню «Трекер». Открой бота, нажми `/start` — готово.
+## Способ 1: через GitHub, ничего не ставя (рекомендуется)
 
-Опционально можно задать secrets `CLOUDFLARE_ACCOUNT_ID` и `D1_DATABASE_ID` — иначе они определяются автоматически (первый аккаунт токена; база по имени `tracker-db`).
+Деплой делает GitHub Actions. Плюс: после каждого обновления кода приложение пересобирается само.
 
-### Ручной деплой с компьютера
+1. **Сделай fork** — кнопка [Fork](https://github.com/hidtk/tg-daily-tracker/fork) вверху страницы.
+2. **Создай Cloudflare API Token.** [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Token** → шаблон **Edit Cloudflare Workers** → в *Permissions* нажми *Add more* и добавь **Account · D1 · Edit** → *Continue to summary* → *Create Token*. Скопируй токен.
+3. **Добавь секреты** в своём форке: *Settings → Secrets and variables → Actions*.
+
+   Вкладка **Secrets** → *New repository secret*:
+
+   | Имя | Значение |
+   |---|---|
+   | `CLOUDFLARE_API_TOKEN` | токен из шага 2 |
+   | `BOT_TOKEN` | токен бота от BotFather |
+   | `SESSION_SECRET` | любая длинная случайная строка (32+ символа), см. ниже |
+
+   Как получить случайную строку:
+   - Windows (PowerShell): `[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')`
+   - macOS / Linux: `openssl rand -hex 32`
+
+   Вкладка **Variables** → *New repository variable*: `BOT_USERNAME` — username бота **без** `@`.
+
+4. **Включи Actions** во вкладке *Actions* форка (GitHub отключает их в форках по умолчанию) → слева **Deploy (Worker + Mini App)** → **Run workflow**.
+5. Через 2–3 минуты workflow станет зелёным. Открой своего бота и нажми `/start` — готово.
+
+Workflow сам создаёт базу D1, применяет миграции, деплоит Worker вместе с Mini App, загружает секреты, ставит webhook, команды и кнопку меню **IELTS**. Адрес приложения виден в логе шага *Deploy Worker* (`https://tg-daily-tracker.<имя>.workers.dev`).
+
+> Опционально: secrets `CLOUDFLARE_ACCOUNT_ID` и `D1_DATABASE_ID`. Без них берётся первый аккаунт, к которому есть доступ у токена, и база с именем `tracker-db`.
+
+## Способ 2: с компьютера одной командой
+
+Работает на Windows, macOS и Linux.
+
+1. Скачай проект — [ZIP](https://github.com/hidtk/tg-daily-tracker/archive/refs/heads/main.zip) (распакуй) или через git:
+
+   ```bash
+   git clone https://github.com/hidtk/tg-daily-tracker.git
+   cd tg-daily-tracker
+   ```
+
+2. Установи зависимости и запусти мастер:
+
+   ```bash
+   npm install
+   npm run setup
+   ```
+
+Мастер спросит токен бота и проверит его, откроет браузер для входа в Cloudflare, затем сам создаст базу, соберёт и задеплоит приложение, загрузит секреты и настроит бота. В конце он напишет ссылку на бота.
+
+Запускать повторно безопасно: так же обновляется приложение после изменений в коде. Токен и сгенерированный `SESSION_SECRET` мастер сохраняет в `apps/worker/.dev.vars` — этот файл не попадает в git.
+
+<details>
+<summary>Полностью ручная установка (если хочется всё контролировать)</summary>
 
 ```bash
-npm install && npx wrangler login
+npm install
 cd apps/worker
-npx wrangler d1 create tracker-db          # database_id → в wrangler.jsonc вместо REPLACE_WITH_D1_DATABASE_ID
+npx wrangler login
+npx wrangler d1 create tracker-db        # скопируй database_id в wrangler.jsonc вместо REPLACE_WITH_D1_DATABASE_ID
 npx wrangler d1 migrations apply tracker-db --remote
+cd ../.. && npm run deploy               # выведет https://tg-daily-tracker.<you>.workers.dev
+cd apps/worker
 npx wrangler secret put BOT_TOKEN
 npx wrangler secret put SESSION_SECRET
-cd ../.. && npm run deploy                 # выведет https://tg-daily-tracker.<you>.workers.dev
+cd ../..
+```
+
+Настройка бота — macOS / Linux:
+
+```bash
 BOT_TOKEN=... SESSION_SECRET=... node scripts/setup-bot.mjs https://tg-daily-tracker.<you>.workers.dev
 ```
 
-После первого деплоя пропиши URL в `apps/worker/wrangler.jsonc` → `vars.WEBAPP_URL` (нужен для кнопок в напоминаниях) и задеплой ещё раз.
+Windows (PowerShell):
 
-## Локальная разработка
-
-```bash
-cp .env.example apps/worker/.dev.vars       # BOT_TOKEN, SESSION_SECRET
-cd apps/worker && npx wrangler d1 migrations apply tracker-db --local && cd ../..
-npm run dev:worker                          # http://localhost:8787 (API + бот)
-npm run dev:web                             # http://localhost:5173 (Vite, прокси /api → 8787)
+```powershell
+$env:BOT_TOKEN="..."; $env:SESSION_SECRET="..."; node scripts/setup-bot.mjs https://tg-daily-tracker.<you>.workers.dev
 ```
 
-Чтобы открыть Mini App в обычном браузере без Telegram, положи в `apps/web/.env.local` подписанный `initData`:
+Затем пропиши в `apps/worker/wrangler.jsonc` → `vars` значения `WEBAPP_URL` (URL воркера, нужен для кнопок в напоминаниях) и `BOT_USERNAME`, и выполни `npm run deploy` ещё раз.
+
+</details>
+
+## Первые шаги в боте
+
+1. `/start` → кнопка меню **IELTS** открывает приложение.
+2. **Settings**: целевой band, дата экзамена, часы в неделю, время утренних и вечерних напоминаний, часовой пояс.
+3. **Settings → Lessons**: добавь занятия с преподавателем, чтобы получать напоминания и привязывать домашку.
+4. По желанию:
+   - `/partner` — позвать партнёра по ответственности;
+   - **Practice → iPhone: блокировка через «Команды»** — две автоматизации по инструкции в приложении, около 5 минут;
+   - **Practice → замок соцсетей** (строже): зарегистрируйся на [nextdns.io](https://nextdns.io), вставь API key (*My account → API*) и ID конфигурации, потом установи на iPhone профиль по ссылке из приложения.
+
+Команды бота: `/app`, `/today`, `/task`, `/words`, `/hw`, `/minutes`, `/unlock`, `/lock`, `/partner`, `/help`.
+
+## Обновление
+
+- **Способ 1:** в своём форке нажми **Sync fork → Update branch**. Push в `main` запустит деплой автоматически.
+- **Способ 2:** `git pull` (или скачай ZIP заново), затем `npm install` и `npm run setup`.
+
+Данные в базе сохраняются: новые миграции применяются поверх.
+
+## Частые проблемы
+
+| Симптом | Что сделать |
+|---|---|
+| Workflow падает на *Resolve Cloudflare account id* | У токена не хватает прав. Пересоздай его по шаблону *Edit Cloudflare Workers* и добавь **D1 · Edit** |
+| *Could not register a workers.dev subdomain* | Cloudflare → *Workers & Pages* → задай поддомен вручную, затем перезапусти workflow |
+| Бот молчит на `/start` | Проверь secret `BOT_TOKEN` и что шаг *Configure Telegram bot* зелёный, затем перезапусти workflow |
+| Mini App пишет «Invalid initData» | `BOT_TOKEN` в Worker'е не от этого бота — исправь secret и перезапусти деплой (или `npm run setup`) |
+| Нет утренних напоминаний | Проверь часовой пояс и время в *Settings*; cron срабатывает раз в 15 минут |
+| Приложение не открывается в обычном браузере | Так и задумано: вход идёт через Telegram. Для разработки см. ниже |
+| Нужно поправить данные в базе | *Actions → D1 SQL (admin) → Run workflow* выполняет один SQL-запрос к прод-базе |
+
+## Разработка
+
+| Слой | Технология |
+|---|---|
+| Mini App | Vite + React + TypeScript, `telegram-web-app.js`, цвета из темы Telegram |
+| Backend, бот, cron | Cloudflare Workers (Worker раздаёт и статику Mini App) |
+| База | Cloudflare D1 (SQLite) |
+| CI/CD | GitHub Actions: CI на PR, `wrangler deploy` по push в `main` |
+
+```bash
+npm install
+cp .env.example apps/worker/.dev.vars       # впиши BOT_TOKEN, SESSION_SECRET (или просто запусти npm run setup)
+cd apps/worker && npx wrangler d1 migrations apply tracker-db --local && cd ../..
+npm run dev:worker                          # http://localhost:8787 — API и бот
+npm run dev:web                             # http://localhost:5173 — Vite, /api проксируется на 8787
+```
+
+Mini App в обычном браузере без Telegram — положи подписанный `initData` в `apps/web/.env.local`:
 
 ```bash
 echo "VITE_DEV_INIT_DATA=$(BOT_TOKEN=<тот же, что в .dev.vars> node scripts/dev-initdata.mjs)" > apps/web/.env.local
 ```
 
-Проверка бота локально: `npx wrangler dev` + туннель (например `cloudflared tunnel --url http://localhost:8787`), webhook на URL туннеля.
+- Бот локально: `npx wrangler dev` + туннель (`cloudflared tunnel --url http://localhost:8787`), webhook на адрес туннеля.
+- Cron локально: `curl "http://localhost:8787/cdn-cgi/handler/scheduled?cron=*/15+*+*+*+*"`.
+- Проверки: `npm run typecheck`, `npm test`, `npm run build`.
 
-Cron локально: `curl "http://localhost:8787/cdn-cgi/handler/scheduled?cron=*/15+*+*+*+*"`.
-
-## Структура
-
-```
-apps/web          — Mini App (Vite + React)
-apps/worker       — Cloudflare Worker: API, webhook бота, cron, миграции D1
-packages/shared   — типы, zod-схемы, логика расписаний/стриков (используется и клиентом, и сервером)
-scripts/          — setup-bot.mjs (webhook + menu button), dev-initdata.mjs
-.github/workflows — ci.yml, deploy-worker.yml
-```
-
-## API
-
-```
-POST /api/auth               { initData, tz } → { token, user, settings }
-GET  /api/today?date=        активности дня + записи
-PUT  /api/entries            { entries: [...] } (batch, только сегодня/вчера)
-GET  /api/activities         ?archived=1 — включая архив
-POST /api/activities
-PUT  /api/activities/:id     поля активности, sort, archived_at (null = вернуть из архива)
-DELETE /api/activities/:id   = архивировать
-GET  /api/stats?month=YYYY-MM  стрики + heatmap
-GET  /api/settings, PUT /api/settings
-GET  /api/export             JSON (Bearer или ?token=)
-GET  /api/ielts              статистика IELTS (недели, пробные тесты, дисциплина)
-POST /api/mocks, DELETE /api/mocks/:id
-GET  /api/proofs/:id/image   фото-подтверждение (прокси к Telegram)
-DELETE /api/proofs/:id, DELETE /api/partner
-GET  /api/vocab, POST /api/vocab/review   слова дня, очередь повторения, отметка «знал / забыл»
-GET/POST /api/sentences      слово для предложения; предложение → +1 мин
-GET  /api/analytics          слова, предложения, Reading по неделям
-POST /api/reading/refresh    открыть следующую партию тестов
-POST /api/lock/config, DELETE /api/lock/config, POST /api/lock/unlock {minutes}, POST /api/lock/close
-GET  /dns/:key.mobileconfig  профиль DNS для iPhone
-GET  /api/wallet, PUT /api/wallet   баланс, лимиты, gate-ссылка
-POST /api/reading/submit     { test_id, seconds, answers } → band + начисленные минуты
-GET  /gate/:key?app=&e=open|close|status  → текст «ALLOW N» / «BLOCK 0» (для iOS Shortcuts)
-GET/POST /api/lessons, PUT/DELETE /api/lessons/:id
-GET /api/homeworks, POST /api/homeworks/:id/done, DELETE /api/homeworks/:id
-POST /bot/webhook            Telegram updates (проверяется secret_token)
-cron */15 * * * *            напоминания и недельные сводки по tz пользователей
-cron * * * * *               закрытие истёкших окон замка
-```
-
-## Модель данных
-
-```
-users(id, tg_id, first_name, tz, morning_time, evening_time, weekly_summary, weekly_time,
-      ai_endpoint, ai_key, last_morning_sent, last_evening_sent, last_weekly_sent, created_at)
-activities(id, user_id, name, emoji, color, schedule_type, schedule_days, anchor_date,
-           goal_text, goal_date, sort, archived_at)
-entries(id, user_id, activity_id, date, planned, plan_note, done, done_note, minutes, skills, updated_at)
-  unique(activity_id, date)
-proofs(id, user_id, activity_id, date, type photo|chat, file_id, text)
-mock_tests(id, user_id, date, listening, reading, writing, speaking, overall, note)
-users +: strict_mode, partner_chat_id, partner_name, partner_code, ielts_target, ielts_exam_date, ielts_weekly_hours,
-        wallet_enabled, sm_balance, sm_bank_cap, sm_daily_cap, sm_apps, sm_api_key
-reading_attempts(id, user_id, test_id, date, correct, total, band, seconds, earned)
-wallet_ledger(id, user_id, at, date, delta, reason, note)
-wallet_sessions(id, user_id, app, started_at, ended_at, minutes)
-vocab_progress(user_id, word_id, stage, introduced_on, next_review, reviews, lapses)
-vocab_reviews(id, user_id, word_id, date, ok)
-```
+Структура проекта, API и модель данных описаны в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Лицензия
 
-MIT
+[MIT](LICENSE)
