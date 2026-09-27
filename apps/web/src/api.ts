@@ -73,6 +73,7 @@ export const api = {
   lockConfig: (key: string, profile: string) => request<WalletResponse>('POST', '/api/lock/config', { key, profile }),
   lockRemove: () => request<WalletResponse>('DELETE', '/api/lock/config'),
   unlock: (minutes: number) => request<WalletResponse>('POST', '/api/lock/unlock', { minutes }),
+  lockCheck: () => request<{ ok: boolean; error?: string; blocked?: Partial<Record<string, boolean>>; state: string | null; repaired?: boolean }>('GET', '/api/lock/check'),
   lockNow: () => request<WalletResponse & { refunded: number }>('POST', '/api/lock/close'),
   vocab: () => request<VocabResponse>('GET', '/api/vocab'),
   reviewWord: (word_id: number, ok: boolean) => request<{ card: VocabCard }>('POST', '/api/vocab/review', { word_id, ok }),

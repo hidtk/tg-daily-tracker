@@ -440,3 +440,13 @@ select { padding-right: 34px; background-image: linear-gradient(45deg, transpare
 @media (max-width: 350px) { .nav button { font-size: 10px; } .el-mascot svg { width: 72px; height: 72px; } }
 .challenge-answer { margin: 0 0 6px; flex-wrap: wrap; }
 .challenge-ok { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--success-ink); font-weight: 800; font-size: 14px; }
+/* Home: minutes first */
+.minutes-card .balance { margin: 0; }
+/* Keyboard open: the nav steps aside so it can't be tapped by accident. */
+.nav { transition: transform 0.15s ease, opacity 0.15s ease; }
+.nav.nav-hidden { transform: translateY(110%); opacity: 0; pointer-events: none; }
+.diag { margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+.diag-row { padding: var(--space-2) var(--space-3); background: var(--surface-tint); border: 2px solid var(--border); border-radius: var(--radius-md); }
+.diag-help { padding: var(--space-3); background: var(--error-bg); color: var(--error-ink); border-radius: var(--radius-md); }
+.diag-help ol { margin: 6px 0 10px; padding-left: 20px; }
+.diag-help li { margin-bottom: 4px; }

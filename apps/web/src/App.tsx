@@ -21,10 +21,37 @@ const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
   { id: 'settings', label: 'Settings', icon: () => Icon.gear(24) },
 ];
 
+/**
+ * True while the on-screen keyboard is up. The bottom nav hides then: otherwise it rides on top of the
+ * keyboard and is easy to tap by accident while pasting or typing.
+ */
+function useKeyboardOpen(): boolean {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const isField = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes((el as HTMLInputElement).type)));
+    let timer: number | undefined;
+    const onIn = (e: FocusEvent) => { if (isField(e.target)) { window.clearTimeout(timer); setOpen(true); } };
+    const onOut = () => { window.clearTimeout(timer); timer = window.setTimeout(() => setOpen(isField(document.activeElement)), 250); };
+    const vv = window.visualViewport;
+    const onResize = () => { if (vv && window.innerHeight - vv.height > 150) setOpen(true); };
+    document.addEventListener('focusin', onIn);
+    document.addEventListener('focusout', onOut);
+    vv?.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('focusin', onIn);
+      document.removeEventListener('focusout', onOut);
+      vv?.removeEventListener('resize', onResize);
+      window.clearTimeout(timer);
+    };
+  }, []);
+  return open;
+}
+
 export function App() {
   const [session, setSession] = useState<AuthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('today');
+  const keyboard = useKeyboardOpen();
   const [lang, setLangState] = useState<Lang>(() => readStoredLang() ?? 'en');
   const langCtx = useMemo(
     () => ({
@@ -64,12 +91,12 @@ export function App() {
   return (
     <LangContext.Provider value={langCtx}>
     <ToastProvider>
-      {tab === 'today' && <Today isNew={session.user.is_new} />}
+      {tab === 'today' && <Today isNew={session.user.is_new} onEarn={() => setTab('practice')} />}
       {tab === 'words' && <Words />}
       {tab === 'practice' && <Practice />}
       {tab === 'progress' && <Progress />}
       {tab === 'settings' && <SettingsScreen initial={session.settings} />}
-      <nav className="nav">
+      <nav className={`nav${keyboard ? ' nav-hidden' : ''}`} aria-hidden={keyboard}>
         {TABS.map((t) => (
           <button
             key={t.id}
