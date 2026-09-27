@@ -117,8 +117,8 @@ export function ShortcutsGuide({ gateUrl, apps, onClose }: { gateUrl: string; ap
         <div className="steps">
           <p>
             {ru
-              ? `Когда ты открываешь ${names}, iPhone сам запускает автоматизацию. Она спрашивает сервер, есть ли у тебя минуты. Минут нет — тебя выкидывает на экран «Домой», а бот присылает кнопку «Заработать минуты». Минуты есть — приложение открывается, а время списывается, когда ты его закрываешь.`
-              : `When you open ${names}, the iPhone runs an automation. It asks the server whether you have minutes. No minutes — you are sent to the Home Screen and the bot sends an “Earn minutes” button. Minutes left — the app opens and the time is charged when you close it.`}
+              ? `Когда ты открываешь ${names}, iPhone сам запускает автоматизацию. Она спрашивает сервер, есть ли у тебя минуты. Минут нет — тебя выкидывает на экран «Домой». Минуты есть — приложение открывается, а время списывается, когда ты его закрываешь.`
+              : `When you open ${names}, the iPhone runs an automation. It asks the server whether you have minutes. No minutes — you are sent to the Home Screen. Minutes left — the app opens and the time is charged when you close it.`}
           </p>
           <p className="muted">
             {ru
@@ -191,13 +191,13 @@ export function ShortcutsGuide({ gateUrl, apps, onClose }: { gateUrl: string; ap
           {ru ? (
             <>
               <p>1. Нажми «Проверить ссылку» выше — должно появиться «Ссылка работает».</p>
-              <p>2. Открой Instagram. Если минут нет, приложение закроется, а бот пришлёт сообщение.</p>
+              <p>2. Открой Instagram. Если минут нет, приложение закроется.</p>
               <p>3. Пройди Reading-тест, открой снова — приложение пустит. Закрой его: в разделе «Последние сессии» появится запись.</p>
             </>
           ) : (
             <>
               <p>1. Tap “Test the link” above — you should see “The link works”.</p>
-              <p>2. Open Instagram. With no minutes it closes and the bot messages you.</p>
+              <p>2. Open Instagram. With no minutes it closes.</p>
               <p>3. Pass a Reading test and open it again — it lets you in. Close it: an entry appears under “Recent sessions”.</p>
             </>
           )}
