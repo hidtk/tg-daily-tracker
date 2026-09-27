@@ -1,7 +1,7 @@
 import { GateApp, todayInTz, type LockState } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, walletSettings, type UserRow } from './db';
-import { checkProfile, setLocked } from './nextdns';
+import { checkBlocked, checkProfile, setLocked, type LockCheck } from './nextdns';
 import { Bot } from './telegram';
 
 function randomPassword(): string {
@@ -102,4 +102,21 @@ export async function lockSweep(env: Env, now = new Date()): Promise<number> {
     }
   }
   return n;
+}
+
+/** Diagnostics: what NextDNS really has for this user right now. Re-applies the lock if it should be closed but isn't. */
+export async function lockCheck(repo: Repo, user: UserRow, now = new Date()): Promise<LockCheck & { state: string | null; repaired?: boolean }> {
+  if (!user.nextdns_key || !user.nextdns_profile) return { ok: false, error: 'not_configured', state: null };
+  const list = apps(user);
+  const open = user.lock_state === 'open' && !!user.lock_until && Date.parse(user.lock_until) > now.getTime();
+  let r = await checkBlocked(user.nextdns_key, user.nextdns_profile, list);
+  let repaired = false;
+  const first = r;
+  if (first.ok && !open && list.some((a) => !first.blocked[a])) {
+    const fix = await setLocked(user.nextdns_key, user.nextdns_profile, list, true);
+    if (!fix.ok) await repo.updateUser(user.id, { lock_error: fix.error ?? 'error' });
+    r = await checkBlocked(user.nextdns_key, user.nextdns_profile, list);
+    repaired = true;
+  }
+  return { ...r, state: open ? 'open' : 'locked', repaired };
 }

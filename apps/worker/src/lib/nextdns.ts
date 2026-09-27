@@ -22,7 +22,9 @@ async function call(key: string, method: string, path: string, body?: unknown): 
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+    // NextDNS can answer 200 with {"errors":[...]} — that is a failure, not a success.
+    const errs = (data as { errors?: unknown[] } | null)?.errors;
+    return { ok: res.ok && !(Array.isArray(errs) && errs.length), status: res.status, data };
   } catch {
     return { ok: false, status: 0, data: null };
   }
@@ -44,10 +46,9 @@ export async function setLocked(key: string, profile: string, apps: GateApp[], l
     if (svc) {
       const patch = await call(key, 'PATCH', `/profiles/${profile}/parentalControl/services/${svc}`, { active: locked });
       if (patch.ok) continue;
-      if (patch.status === 404) {
-        const add = await call(key, 'POST', `/profiles/${profile}/parentalControl/services`, { id: svc, active: locked, recreation: false });
-        if (add.ok) continue;
-      }
+      // Not in the list yet (NextDNS answers 404 or 200 with errors): add it.
+      const add = await call(key, 'POST', `/profiles/${profile}/parentalControl/services`, { id: svc, active: locked, recreation: false });
+      if (add.ok) continue;
     }
     // domain fallback
     for (const d of DOMAINS[app]) {
@@ -58,6 +59,24 @@ export async function setLocked(key: string, profile: string, apps: GateApp[], l
     }
   }
   return errors.length ? { ok: false, error: errors.slice(0, 3).join('; ') } : { ok: true };
+}
+
+export type LockCheck = { ok: true; blocked: Partial<Record<GateApp, boolean>> } | { ok: false; error: string };
+
+/** Read the profile back and report, per app, whether NextDNS currently blocks it (service or all fallback domains). */
+export async function checkBlocked(key: string, profile: string, apps: GateApp[]): Promise<LockCheck> {
+  const r = await call(key, 'GET', `/profiles/${profile}`);
+  if (!r.ok) return { ok: false, error: r.status === 401 || r.status === 403 ? 'Invalid API key' : r.status === 404 ? 'Profile not found' : `NextDNS error ${r.status}` };
+  type Item = { id: string; active?: boolean };
+  const d = (r.data as { data?: { parentalControl?: { services?: Item[] }; denylist?: Item[] } })?.data ?? {};
+  const services = new Map((d.parentalControl?.services ?? []).map((s) => [s.id, s.active !== false]));
+  const deny = new Map((d.denylist ?? []).map((s) => [s.id, s.active !== false]));
+  const blocked: Partial<Record<GateApp, boolean>> = {};
+  for (const app of apps) {
+    const svc = SERVICE[app];
+    blocked[app] = (svc ? services.get(svc) === true : false) || (DOMAINS[app].length > 0 && DOMAINS[app].every((x) => deny.get(x) === true));
+  }
+  return { ok: true, blocked };
 }
 
 function uuid(): string {
