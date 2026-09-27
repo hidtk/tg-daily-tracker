@@ -133,6 +133,88 @@ function LinkBtn({ href, children }: { href: string; children: ReactNode }) {
   return <button className="btn sm" style={{ marginTop: 8 }} onClick={() => openExternal(href)}>{children} ↗</button>;
 }
 
+const PROBE: Partial<Record<GateApp, string>> = {
+  instagram: 'https://www.instagram.com/favicon.ico',
+  tiktok: 'https://www.tiktok.com/favicon.ico',
+  youtube: 'https://www.youtube.com/favicon.ico',
+  vk: 'https://vk.com/favicon.ico',
+};
+
+/** Can this device reach the site? A NextDNS block makes the request fail at DNS level. */
+async function reachable(url: string): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), 6000);
+  try {
+    await fetch(`${url}?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+type Diag = { server: Awaited<ReturnType<typeof api.lockCheck>> | null; device: { app: GateApp; reachable: boolean }[] };
+
+function LockDiagnostics({ w }: { w: WalletResponse }) {
+  const { lang } = useLang();
+  const ru = lang === 'ru';
+  const [busy, setBusy] = useState(false);
+  const [d, setD] = useState<Diag | null>(null);
+
+  const run = async () => {
+    haptic.tap();
+    setBusy(true);
+    try {
+      const server = await api.lockCheck().catch(() => null);
+      const apps = w.apps.filter((a) => PROBE[a]);
+      const device = await Promise.all(apps.map(async (app) => ({ app, reachable: await reachable(PROBE[app]!) })));
+      setD({ server, device });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const open = d?.server?.state === 'open';
+  const serverBad = d?.server && (!d.server.ok || Object.values(d.server.blocked ?? {}).some((v) => !v));
+  const deviceLeaks = d?.device.filter((x) => x.reachable) ?? [];
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <button className="btn" onClick={run} disabled={busy}>{busy ? '…' : ru ? 'Проверить блокировку' : 'Check the lock'}</button>
+      {d && (
+        <div className="diag">
+          <div className="diag-row">
+            <b>{ru ? 'NextDNS (сервер):' : 'NextDNS (server):'}</b>{' '}
+            {!d.server ? (ru ? 'не удалось проверить' : 'could not check') : !d.server.ok ? (d.server.error ?? 'error') : open ? (ru ? 'сейчас открыто на оплаченные минуты' : 'open for paid minutes right now') : serverBad ? (ru ? 'закрыто не всё' : 'not everything is blocked') : (ru ? 'всё закрыто' : 'everything is blocked')}
+            {d.server?.repaired && <div className="muted small">{ru ? 'Замок в NextDNS был снят — я закрыл его заново.' : 'The NextDNS lock was off — I closed it again.'}</div>}
+            {d.server?.blocked && (
+              <div className="muted small">{Object.entries(d.server.blocked).map(([a, v]) => `${GATE_APP_LABEL[a as GateApp]} ${v ? '✓' : '✗'}`).join(' · ')}</div>
+            )}
+          </div>
+          <div className="diag-row">
+            <b>{ru ? 'Этот телефон:' : 'This phone:'}</b>{' '}
+            {open ? (ru ? 'окно открыто — сайты и должны открываться' : 'window is open — sites are expected to load') : deviceLeaks.length === 0 ? (ru ? 'соцсети не открываются — замок работает' : 'social media does not load — the lock works') : (ru ? `открываются: ${deviceLeaks.map((x) => GATE_APP_LABEL[x.app]).join(', ')}` : `still loading: ${deviceLeaks.map((x) => GATE_APP_LABEL[x.app]).join(', ')}`)}
+          </div>
+          {!open && deviceLeaks.length > 0 && !serverBad && (
+            <div className="diag-help small">
+              <b>{ru ? 'Телефон не ходит через NextDNS. Проверь по порядку:' : 'This phone does not use NextDNS. Check in order:'}</b>
+              <ol>
+                <li>{ru ? 'Выключи VPN (Amnezia и другие): VPN подменяет DNS, и блокировка не видна.' : 'Turn off any VPN (Amnezia etc.): a VPN replaces DNS and bypasses the lock.'}</li>
+                <li>{ru ? 'iPhone: Настройки → Основные → VPN и управление устройством → DNS → выбери «IELTS lock». Если профиля там нет — установи его кнопкой выше.' : 'iPhone: Settings → General → VPN & Device Management → DNS → choose “IELTS lock”. If it is not there, install the profile with the button above.'}</li>
+                <li>{ru ? 'Android: Настройки → Сеть → Частный DNS → имя хоста из шага 6.' : 'Android: Settings → Network → Private DNS → the hostname from step 6.'}</li>
+                <li>{ru ? 'Закрой и заново открой Instagram/TikTok — приложения держат старые адреса несколько минут.' : 'Force-close and reopen Instagram/TikTok — apps keep old addresses for a few minutes.'}</li>
+              </ol>
+              <button className="btn sm" onClick={() => openExternal('https://test.nextdns.io')}>{ru ? 'Открыть проверку NextDNS' : 'Open NextDNS test'} ↗</button>
+              <div className="muted tiny" style={{ marginTop: 6 }}>{ru ? 'Там должно быть "status": "ok" и твой ID' : 'It should say "status": "ok" and your ID'} {w.lock.profile_id}.</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NextDnsSetup({ w, onChange }: { w: WalletResponse; onChange: (r: WalletResponse) => void }) {
   const t = useT();
   const toast = useToast();
@@ -211,6 +293,7 @@ function NextDnsSetup({ w, onChange }: { w: WalletResponse; onChange: (r: Wallet
           <button className="btn sm" style={{ marginTop: 8 }} onClick={async () => { haptic.tap(); try { await navigator.clipboard.writeText(host); toast(t('Copied')); } catch { toast(t('Copy it by hand')); } }}>{t('Copy')}</button>
         </Step>
       )}
+      <LockDiagnostics w={w} />
       <div className="row" style={{ gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
         <button className="btn link" onClick={() => openExternal(LINKS.nextdnsHome)}>{ru ? 'Открыть NextDNS' : 'Open NextDNS'} ↗</button>
         <button className="btn link" style={{ color: 'var(--danger)' }} onClick={async () => { haptic.warning(); try { onChange(await api.lockRemove()); } catch (e) { toast(e instanceof ApiError ? e.message : t('Error')); } }}>{t('Disconnect')}</button>
