@@ -10,8 +10,10 @@ import { runCron } from './bot/cron';
 import { HttpError, json } from './lib/http';
 
 export default {
-  async fetch(req, env): Promise<Response> {
+  async fetch(req, rawEnv): Promise<Response> {
     const url = new URL(req.url);
+    // Links in the app and the bot need an absolute base; fall back to this Worker's own origin.
+    const env: Env = rawEnv.WEBAPP_URL ? rawEnv : { ...rawEnv, WEBAPP_URL: url.origin };
 
     if (url.pathname === '/bot/webhook' && req.method === 'POST') {
       return handleWebhook(req, env);
@@ -55,8 +57,10 @@ export default {
 
   async scheduled(event, env, ctx): Promise<void> {
     // Every minute: close expired unlock windows. Every 15 minutes: reminders and summaries.
-    ctx.waitUntil(lockSweep(env).then((n) => n && console.log('locks closed', n)));
-    if (event.cron === '* * * * *') return;
+    if (event.cron === '* * * * *') {
+      ctx.waitUntil(lockSweep(env).then((n) => n && console.log('locks closed', n)));
+      return;
+    }
     ctx.waitUntil(runCron(env).then((c) => console.log('cron done', JSON.stringify(c))));
   },
 } satisfies ExportedHandler<Env>;
