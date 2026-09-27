@@ -5,7 +5,7 @@ import { Bot } from '../lib/telegram';
 
 /**
  * Endpoint for iOS Shortcuts automations. Deliberately keyless-simple:
- *   GET /gate/<api_key>?app=instagram&e=open|close|status
+ *   GET /gate/<api_key>?app=instagram|any&e=open|close|status
  * Answers in plain text so a Shortcut can just check "contains ALLOW".
  */
 
@@ -45,7 +45,10 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
   if (!user) return text('BLOCK 0\nbad key');
 
   const w = walletSettings(user);
-  const appParsed = GateApp.safeParse((url.searchParams.get('app') ?? 'other').toLowerCase());
+  const rawApp = (url.searchParams.get('app') ?? 'other').toLowerCase();
+  // `app=any`: one automation for several apps at once (Shortcuts can't tell which one fired) — always gated.
+  const anyApp = rawApp === 'any';
+  const appParsed = GateApp.safeParse(rawApp);
   const app: GateApp = appParsed.success ? appParsed.data : 'other';
   const event = url.searchParams.get('e') ?? 'open';
 
@@ -62,7 +65,7 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
 
   // event === 'open'
   if (!w.wallet_enabled) return text(`ALLOW ${Math.floor(balance)}\nwallet off`);
-  if (!w.apps.includes(app)) return text(`ALLOW ${Math.floor(balance)}\nnot gated`);
+  if (!anyApp && !w.apps.includes(app)) return text(`ALLOW ${Math.floor(balance)}\nnot gated`);
 
   if (balance < 1) {
     if (env.BOT_TOKEN) {
@@ -70,7 +73,7 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
       await bot
         .sendMessage(
           user.tg_id,
-          `<b>${GATE_APP_LABEL[app]}</b> is locked: no minutes left.\n\nPass a Reading test in the trainer — 10 to 30 minutes per test.`,
+          `<b>${anyApp ? 'Social media' : GATE_APP_LABEL[app]}</b> is locked: no minutes left.\n\nPass a Reading test in the trainer — 10 to 30 minutes per test.`,
           env.WEBAPP_URL ? [[{ text: 'Earn minutes', web_app: { url: env.WEBAPP_URL } }]] : undefined,
         )
         .catch(() => undefined);
