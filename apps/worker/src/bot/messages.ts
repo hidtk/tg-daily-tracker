@@ -13,9 +13,9 @@ export function fmtDate(iso: string): string {
 export function welcomeText(firstName: string, isNew: boolean): string {
   const hi = `Hello, ${escapeHtml(firstName || 'there')}.`;
   if (isNew) {
-    return `${hi}\n\nThis is your IELTS trainer. Every morning I send five new words and a practice task; every evening I ask whether you practised. Lessons and homework live here too.\n\nOpen the app to set your target band, exam date and lesson times.`;
+    return `${hi}\n\nThis is your IELTS trainer. Every morning I send five new words and a practice task; everything you do in the app is logged by itself. Lessons and homework live here too.\n\nOpen the app to set your target band, exam date and lesson times.`;
   }
-  return `${hi}\n\nOpen the app to log today’s practice, or use /task, /words and /hw.`;
+  return `${hi}\n\nOpen the app to practise, or use /task, /words and /hw.`;
 }
 
 export function helpText(): string {
@@ -62,7 +62,7 @@ export function todayStatusText(date: string, activities: Activity[], entries: E
 export function morningText(date: string, activities: Activity[]): string {
   void date;
   void activities;
-  return `<b>Good morning.</b> Today’s words and task are below. Mark the plan in the app when you know what you will do.`;
+  return `<b>Good morning.</b> Today’s words and task are below. Everything you do in the app is logged automatically.`;
 }
 
 export function eveningText(date: string, activities: Activity[], entries: Entry[]): string {
@@ -72,7 +72,8 @@ export function eveningText(date: string, activities: Activity[], entries: Entry
     const e = byId.get(a.id);
     return `${mark(e)} ${escapeHtml(a.name)}${e?.plan_note ? ` — <i>${escapeHtml(e.plan_note)}</i>` : ''}`;
   });
-  return `<b>How did it go?</b> Log your minutes and skills for today.\n\n${list.join('\n') || 'Nothing scheduled today.'}`;
+  void list;
+  return `<b>Nothing counted today yet.</b> One Reading test or a quick word review logs the day by itself.`;
 }
 
 export function weeklyText(cur: WeekStats, prev: WeekStats, ownerName?: string): string {
