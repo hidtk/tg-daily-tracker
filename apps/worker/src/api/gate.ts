@@ -1,7 +1,6 @@
-import { GATE_APP_LABEL, GateApp, WALLET_SESSION_MAX_MIN, todayInTz } from '@tracker/shared';
+import { GateApp, WALLET_SESSION_MAX_MIN, todayInTz } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, walletSettings, type UserRow } from '../lib/db';
-import { Bot } from '../lib/telegram';
 
 /**
  * Endpoint for iOS Shortcuts automations. Deliberately keyless-simple:
@@ -88,16 +87,7 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
   }
 
   if (balance < 1) {
-    if (env.BOT_TOKEN) {
-      const bot = new Bot(env.BOT_TOKEN);
-      await bot
-        .sendMessage(
-          user.tg_id,
-          `<b>${anyApp ? 'Social media' : GATE_APP_LABEL[app]}</b> is locked: no minutes left.\n\nPass a Reading test in the trainer — 10 to 30 minutes per test.`,
-          env.WEBAPP_URL ? [[{ text: 'Earn minutes', web_app: { url: env.WEBAPP_URL } }]] : undefined,
-        )
-        .catch(() => undefined);
-    }
+    // No Telegram message here: the Shortcut already sends you to the Home Screen, a ping on every attempt is noise.
     return text('BLOCK 0');
   }
 
