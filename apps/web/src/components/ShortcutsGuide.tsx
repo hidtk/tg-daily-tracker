@@ -1,10 +1,22 @@
 import { useState, type ReactNode } from 'react';
 import { GATE_APP_LABEL, type GateApp } from '@tracker/shared';
-import { haptic } from '../tg';
+import { haptic, tg } from '../tg';
 import { useLang, useT } from '../i18n';
 import { useToast } from './Toast';
 import { Section, Sheet } from './ui';
 import { Mascot } from './Mascot';
+
+const SHORTCUTS_APP = 'shortcuts://';
+const SHORTCUTS_STORE = 'https://apps.apple.com/app/shortcuts/id915249334';
+
+function AppLinks({ ru }: { ru: boolean }) {
+  return (
+    <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+      <a className="btn sm" href={SHORTCUTS_APP} onClick={() => haptic.tap()}>{ru ? 'Открыть «Команды»' : 'Open Shortcuts'} ↗</a>
+      <button className="btn sm" onClick={() => { haptic.tap(); try { tg.openLink(SHORTCUTS_STORE); } catch { window.open(SHORTCUTS_STORE, '_blank'); } }}>{ru ? 'App Store' : 'App Store'} ↗</button>
+    </div>
+  );
+}
 
 /** Absolute gate URL (WEBAPP_URL may be empty on the server → relative path). */
 export function absoluteGateUrl(gateUrl: string): string {
@@ -128,7 +140,7 @@ export function ShortcutsGuide({ gateUrl, apps, onClose }: { gateUrl: string; ap
         {ru ? (
           <>
             <Step n={1} title="Скопируй ссылку 1">Кнопка «Скопировать» выше.</Step>
-            <Step n={2} title="Открой приложение «Команды»">Оно стоит на iPhone по умолчанию. Если удалено — скачай его из App Store бесплатно.</Step>
+            <Step n={2} title="Открой приложение «Команды»">Оно стоит на iPhone по умолчанию. Если удалено — скачай его из App Store бесплатно.<AppLinks ru /></Step>
             <Step n={3} title="Внизу вкладка «Автоматизация» → «+»">Если автоматизаций ещё нет, нажми <A>Новая автоматизация</A>.</Step>
             <Step n={4} title="Выбери «Приложение»">Нажми <A>Выбрать</A> и отметь {names}. Нажми <A>Готово</A>.</Step>
             <Step n={5} title="Поставь галочку «Открыто»">«Закрыто» оставь выключенным — для него будет вторая автоматизация.</Step>
@@ -142,7 +154,7 @@ export function ShortcutsGuide({ gateUrl, apps, onClose }: { gateUrl: string; ap
         ) : (
           <>
             <Step n={1} title="Copy link 1">The Copy button above.</Step>
-            <Step n={2} title="Open the Shortcuts app">It is preinstalled. If you deleted it, get it free from the App Store.</Step>
+            <Step n={2} title="Open the Shortcuts app">It is preinstalled. If you deleted it, get it free from the App Store.<AppLinks ru={false} /></Step>
             <Step n={3} title="Automation tab at the bottom → “+”">With no automations yet, tap <A>New Automation</A>.</Step>
             <Step n={4} title="Choose “App”">Tap <A>Choose</A>, select {names}, tap <A>Done</A>.</Step>
             <Step n={5} title="Tick “Is Opened”">Leave “Is Closed” off — the second automation handles it.</Step>
@@ -159,14 +171,14 @@ export function ShortcutsGuide({ gateUrl, apps, onClose }: { gateUrl: string; ap
       <Section label={ru ? 'Автоматизация 2: учёт времени при закрытии' : 'Automation 2: track time on close'}>
         {ru ? (
           <>
-            <Step n={1} title="Снова «+» → «Приложение» → те же приложения" />
+            <Step n={1} title="Снова «+» → «Приложение» → те же приложения">Сначала скопируй ссылку 2 кнопкой выше.<AppLinks ru /></Step>
             <Step n={2} title="Галочка только «Закрыто», «Запускать сразу»" />
             <Step n={3} title="Одно действие: «Получить содержимое URL» со ссылкой 2">Больше ничего не нужно.</Step>
             <div className="hint">Без неё время сессии посчитается только при следующем открытии, и спишется до 45 минут за раз.</div>
           </>
         ) : (
           <>
-            <Step n={1} title="“+” again → “App” → the same apps" />
+            <Step n={1} title="“+” again → “App” → the same apps">Copy link 2 with the button above first.<AppLinks ru={false} /></Step>
             <Step n={2} title="Only “Is Closed”, “Run Immediately”" />
             <Step n={3} title="One action: “Get Contents of URL” with link 2">Nothing else.</Step>
             <div className="hint">Without it the session is settled on the next open and up to 45 minutes are charged at once.</div>
@@ -196,14 +208,14 @@ export function ShortcutsGuide({ gateUrl, apps, onClose }: { gateUrl: string; ap
         <div className="steps">
           {ru ? (
             <>
-              <p>• Автоматизацию можно выключить в «Командах» — это защита от импульса, а не от решения. Для строгого режима добавь DNS-замок выше: профиль с паролем, пароль отдай партнёру.</p>
+              <p>• Автоматизацию можно выключить в «Командах» — это защита от импульса, а не от решения. Для строгого режима добавь DNS-замок (Способ 2 в настройках): профиль с паролем, пароль отдай партнёру.</p>
               <p>• Без интернета проверка не проходит, и приложение откроется.</p>
               <p>• Если сидеть дольше, чем есть минут, выкинет только при следующем открытии: баланс уйдёт в ноль.</p>
               <p>• Веб-версии (instagram.com в Safari) команда не видит — их закрывает DNS-замок.</p>
             </>
           ) : (
             <>
-              <p>• An automation can be switched off in Shortcuts — this stops the impulse, not a decision. For a strict mode add the DNS lock above: a profile with a password your partner keeps.</p>
+              <p>• An automation can be switched off in Shortcuts — this stops the impulse, not a decision. For a strict mode add the DNS lock (Option 2 in Settings): a profile with a password your partner keeps.</p>
               <p>• Offline the check fails and the app opens.</p>
               <p>• Staying longer than your minutes only blocks you on the next open; the balance goes to zero.</p>
               <p>• Web versions (instagram.com in Safari) are not covered — the DNS lock handles those.</p>
