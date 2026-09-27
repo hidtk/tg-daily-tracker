@@ -102,9 +102,9 @@ export function Practice() {
               </div>
               {w.lock.state === 'open' && <button className="btn" onClick={async () => { haptic.tap(); try { const r = await api.lockNow(); setW(r); toast(r.refunded ? t('{n} min returned', { n: r.refunded }) : t('Locked')); } catch (e) { haptic.warning(); toast(e instanceof ApiError ? e.message : t('Error')); } }}>{t('Lock now')}</button>}
             </div>
-            <div className="chips" style={{ marginTop: 12 }}>
+            <div className="unlock-grid">
               {UNLOCK_PRESETS.map((m) => (
-                <button key={m} className="chip" disabled={w.balance < m} onClick={async () => { haptic.tap(); try { setW(await api.unlock(m)); toast(t('Open for {n} min', { n: m })); } catch (e) { haptic.warning(); toast(e instanceof ApiError ? e.message : t('Error')); } }}>{w.lock.state === 'open' ? `+${m}` : t('Open {n} min', { n: m })}</button>
+                <button key={m} className="chip" disabled={w.balance < m} onClick={async () => { haptic.tap(); try { setW(await api.unlock(m)); toast(t('Open for {n} min', { n: m })); } catch (e) { haptic.warning(); toast(e instanceof ApiError ? e.message : t('Error')); } }}>{w.lock.state === 'open' ? `+${m} ${t('min')}` : `${m} ${t('min')}`}</button>
               ))}
             </div>
             {w.lock.error && <div className="hint" style={{ color: 'var(--danger)' }}>NextDNS: {w.lock.error}</div>}

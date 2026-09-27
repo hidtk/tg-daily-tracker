@@ -20,6 +20,7 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
   const t = useT();
   const { lang, setLang } = useLang();
   const [s, setS] = useState<SettingsView>(initial);
+  const [saved, setSaved] = useState<SettingsView>(initial);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const tzOptions = TZ_LIST.includes(s.tz) ? TZ_LIST : [s.tz, ...TZ_LIST];
@@ -29,14 +30,23 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
     setS((x) => ({ ...x, ...p }));
     setDirty(true);
   };
+  const setExamDate = (v: string) => {
+    const next = v || null;
+    setS((x) => {
+      if (x.ielts_exam_date === next) return x;
+      setDirty(true);
+      return { ...x, ielts_exam_date: next };
+    });
+  };
 
   const save = async () => {
     setBusy(true);
     try {
       const { partner: _p, deadline_editable: _d, bot_username: _b, ...plain } = { ...s, lang };
-      if (plain.ielts_exam_date === initial.ielts_exam_date) delete (plain as Partial<Settings>).ielts_exam_date;
+      if (plain.ielts_exam_date === saved.ielts_exam_date) delete (plain as Partial<Settings>).ielts_exam_date;
       const r = await api.saveSettings(plain);
       setS(r);
+      setSaved(r);
       setDirty(false);
       haptic.success();
       toast(t('Saved'));
@@ -75,14 +85,20 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
       </Section>
 
       <Section label={t('Exam')}>
-        <div className="field-grid">
           <Field label={t('Target band')}><BandSelect value={s.ielts_target} onChange={(v) => patch({ ielts_target: v ?? 7 })} /></Field>
-          <Field label={s.deadline_editable ? t('Exam date') : t('Exam date · changed today')}>
-            <input type="date" value={s.ielts_exam_date ?? ''} disabled={!s.deadline_editable} onChange={(e) => patch({ ielts_exam_date: e.target.value || null })} />
+          <Field label={t('Exam date')}>
+            {/* iOS "Reset" in the date picker fires `input`/`blur` but not always React's onChange — listen to all three. */}
+            <input
+              type="date"
+              value={s.ielts_exam_date ?? ''}
+              onChange={(e) => setExamDate(e.target.value)}
+              onInput={(e) => setExamDate((e.target as HTMLInputElement).value)}
+              onBlur={(e) => setExamDate(e.target.value)}
+            />
           </Field>
-        </div>
+        {s.ielts_exam_date && <button className="btn link" style={{ margin: '-6px 0 14px' }} onClick={() => { haptic.tap(); setExamDate(''); }}>{t('Remove the exam date')}</button>}
         <Field label={t('Practice hours per week')}><input type="number" min={0} max={80} step={0.5} value={s.ielts_weekly_hours} onChange={(e) => patch({ ielts_weekly_hours: Number(e.target.value) })} /></Field>
-        <div className="hint">{t('The exam date can be changed once a day — so it stays a deadline, not a wish.')}</div>
+        <div className="hint">{s.deadline_editable ? t('The exam date can be moved later once a day — so it stays a deadline, not a wish. Moving it earlier is always allowed.') : t('The date was already moved later today. Moving it later (or removing it) is possible tomorrow; earlier — right now.')}</div>
       </Section>
 
       <Section label={t('Mornings and evenings')}>
