@@ -1,7 +1,6 @@
 import type { Homework, Lesson, Skill } from '@tracker/shared';
 import { diffDays, nextWeekdayDate, weekdayMon0 } from '@tracker/shared';
 import { escapeHtml, type InlineKeyboardButton } from '../lib/telegram';
-import { KIND_LABEL, TASKS, formatTask, taskForDay, type IeltsTask, type TaskKind } from './ielts-tasks';
 import { fmtDate } from './messages';
 
 const TAG_RULES: [Skill, RegExp][] = [
@@ -56,38 +55,6 @@ export function homeworkKeyboard(hws: Homework[]): InlineKeyboardButton[][] {
     { text: `Done: ${h.text.slice(0, 24)}${h.text.length > 24 ? '…' : ''}`, callback_data: `hwd:${h.id}` },
     { text: '✕', callback_data: `hwx:${h.id}` },
   ]);
-}
-
-const SHORT_KINDS: TaskKind[] = ['grammar', 'listening', 'reading'];
-
-/** Pick a complementary bank task: a skill the homework does not cover, short ones preferred. */
-export function complementaryTask(tgId: number, today: string, weekIndex: number, hwTags: Skill[]): IeltsTask {
-  const covered = new Set<string>(hwTags);
-  const kindSkill: Record<TaskKind, Skill> = { writing2: 'writing', writing1: 'writing', speaking: 'speaking', reading: 'reading', listening: 'listening', grammar: 'grammar' };
-  const candidates = SHORT_KINDS.filter((k) => !covered.has(kindSkill[k]));
-  const kind = candidates.length ? candidates[(weekIndex + weekdayMon0(today)) % candidates.length] : 'grammar';
-  const list = TASKS.filter((t) => t.kind === kind && t.id !== 'gr-6');
-  return list[(weekIndex * 7 + weekdayMon0(today) + (tgId % 7)) % list.length];
-}
-
-/** Morning message: homework first (if any), then a bank task. */
-export function composeMorning(tgId: number, today: string, weekIndex: number, hws: Homework[]): { text: string; keyboard: InlineKeyboardButton[][] } {
-  if (!hws.length) {
-    const t = taskForDay(tgId, today, weekdayMon0(today), weekIndex);
-    return { text: formatTask(t), keyboard: [] };
-  }
-  const tags = [...new Set(hws.flatMap((h) => h.tags))];
-  const extra = complementaryTask(tgId, today, weekIndex, tags);
-  const text = [
-    `<b>Plan for today</b>`,
-    '',
-    ...hws.slice(0, 3).map((h) => homeworkLine(h, today)),
-    '',
-    `<b>Extra (${KIND_LABEL[extra.kind]}, about ${extra.minutes} min)</b> — optional, if the homework leaves time:`,
-    `<b>${extra.title}</b>`,
-    extra.body,
-  ].join('\n');
-  return { text, keyboard: homeworkKeyboard(hws) };
 }
 
 export function lessonReminderText(title: string, time: string, when: 'morning' | 'before', hws: Homework[], today: string, beforeMin: number): string {

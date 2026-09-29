@@ -203,9 +203,10 @@ export const MCQ_LETTERS = ['A', 'B', 'C', 'D'];
 import { READING_TESTS_2 } from './reading2';
 import { READING_TESTS_3 } from './reading3';
 import { READING_TESTS_4 } from './reading4';
+import { READING_TESTS_5 } from './reading5';
 
 /** The full library, released to a user in batches of READING_BATCH_SIZE. */
-export const READING_TESTS: ReadingTest[] = [...READING_TESTS_1, ...READING_TESTS_2, ...READING_TESTS_3, ...READING_TESTS_4];
+export const READING_TESTS: ReadingTest[] = [...READING_TESTS_1, ...READING_TESTS_2, ...READING_TESTS_3, ...READING_TESTS_4, ...READING_TESTS_5];
 export const READING_BATCH_SIZE = 4;
 
 /** Tests visible to a user who has unlocked `batch` batches. */

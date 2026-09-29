@@ -3,11 +3,12 @@ import type { Env } from '../env';
 import { Repo, type UserRow } from '../lib/db';
 import { missedOn, skippedOn, weekStats } from '../lib/stats';
 import { Bot } from '../lib/telegram';
-import { eveningText, missedSelfText, missedText, morningText, weeklyText } from './messages';
-import { openAppKeyboard, sendWords, webappUrl } from './webhook';
-import { taskKeyboard, taskForDay } from './ielts-tasks';
-import { composeMorning, lessonReminderText } from './homework';
+import { missedSelfText, missedText, weeklyText } from './messages';
+import { openAppKeyboard, sendQuests, sendWords, webappUrl } from './webhook';
+import { lessonReminderText } from './homework';
 import { closeSession } from '../api/gate';
+import { gameState } from '../lib/game';
+import { eveningQuestsText, questsKeyboard } from './quests';
 
 /** A reminder is sent if local time is within [target, target + WINDOW_MIN) and not yet sent today. */
 const WINDOW_MIN = 90;
@@ -25,15 +26,16 @@ function inWindow(nowHHMM: string, targetHHMM: string): boolean {
 export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; evening: number; weekly: number; missed: number; tasks: number; lessons: number; words: number }> {
   const repo = new Repo(env.DB);
   const bot = new Bot(env.BOT_TOKEN);
-  const kb = openAppKeyboard(webappUrl(env));
+  const base = webappUrl(env);
+  const kb = openAppKeyboard(base);
   const counts = { morning: 0, evening: 0, weekly: 0, missed: 0, tasks: 0, lessons: 0, words: 0 };
   const users = await repo.allUsers();
   const lessonRows = await repo.allLessonRows();
 
-  // Sessions whose "app closed" event never arrived: charge the capped time and free the wallet.
+  // Sessions whose "app closed" event never arrived (and whose timer went quiet): charge up to the last heartbeat.
   for (const st of await repo.staleSessions(WALLET_SESSION_MAX_MIN)) {
     const owner = users.find((x) => x.id === st.user_id);
-    if (owner) await closeSession(repo, owner, st, now);
+    if (owner) await closeSession(repo, owner, st, now, 'stale');
   }
 
   for (const u of users) {
@@ -45,19 +47,23 @@ export async function runCron(env: Env, now = new Date()): Promise<{ morning: nu
       if (u.last_partner_report !== today && inWindow(time, u.morning_time)) {
         if (await sendMissed(repo, bot, u, today, kb)) counts.missed++;
       }
+      // Morning: one message with the day's quests (Speaking card, Writing topic), then the new words.
       if (u.last_morning_sent !== today && inWindow(time, u.morning_time)) {
-        if (await sendMorning(repo, bot, u, today, kb)) counts.morning++;
+        await repo.markSent(u.id, 'last_morning_sent', today);
+        await repo.markSent(u.id, 'last_task_sent', today);
+        if (u.ielts_daily_task ?? 1) {
+          await sendQuests(repo, u, u.tg_id, bot, today, base, '<b>Good morning.</b> Today’s quests — everything is counted by itself:');
+          counts.tasks++;
+        }
+        counts.morning++;
       }
       if ((u.vocab_per_day ?? 5) > 0 && u.last_vocab_sent !== today && inWindow(time, u.morning_time)) {
         await repo.markSent(u.id, 'last_vocab_sent', today);
-        await sendWords(repo, u, u.tg_id, bot, today);
+        await sendWords(repo, u, u.tg_id, bot, today, base);
         counts.words++;
       }
-      if ((u.ielts_daily_task ?? 1) && u.last_task_sent !== today && inWindow(time, u.morning_time)) {
-        if (await sendTask(repo, bot, u, today)) counts.tasks++;
-      }
       if (u.last_evening_sent !== today && inWindow(time, u.evening_time)) {
-        if (await sendEvening(repo, bot, u, today, kb)) counts.evening++;
+        if (await sendEvening(repo, bot, u, today, base)) counts.evening++;
       }
       // Lesson reminders (in the lesson's own timezone)
       for (const l of lessonRows.filter((x) => x.user_id === u.id)) {
@@ -94,22 +100,13 @@ export async function runCron(env: Env, now = new Date()): Promise<{ morning: nu
 
 type Kb = ReturnType<typeof openAppKeyboard>;
 
-async function sendMorning(repo: Repo, bot: Bot, u: UserRow, today: string, kb: Kb): Promise<boolean> {
-  await repo.markSent(u.id, 'last_morning_sent', today);
-  const entries = await repo.entriesForDate(u.id, today);
-  if (entries.some((e) => e.planned)) return false; // plan already filled
-  const activities = await repo.listActivities(u.id);
-  await bot.sendMessage(u.tg_id, morningText(today, activities), kb);
-  return true;
-}
-
-async function sendEvening(repo: Repo, bot: Bot, u: UserRow, today: string, kb: Kb): Promise<boolean> {
+/** Evening: only if a quest is still open — what is left and what is at stake (the streak, held minutes). */
+async function sendEvening(repo: Repo, bot: Bot, u: UserRow, today: string, base: string): Promise<boolean> {
   await repo.markSent(u.id, 'last_evening_sent', today);
-  const entries = await repo.entriesForDate(u.id, today);
-  // Skip only if every scheduled activity is already done.
-  const activities = await repo.listActivities(u.id);
-  if (missedOn(activities, entries, today, false).length === 0) return false;
-  await bot.sendMessage(u.tg_id, eveningText(today, activities, entries), kb);
+  const s = await gameState(repo, u, today);
+  const text = eveningQuestsText(s);
+  if (!text) return false;
+  await bot.sendMessage(u.tg_id, text, questsKeyboard(base, s));
   return true;
 }
 
@@ -121,18 +118,6 @@ async function sendWeekly(repo: Repo, bot: Bot, u: UserRow, today: string, kb: K
   const prev = await weekStats(repo, u.id, activities, addDays(cur.from, -1), false);
   await bot.sendMessage(u.tg_id, weeklyText(cur, prev), kb);
   if (u.partner_chat_id) await bot.sendMessage(u.partner_chat_id, weeklyText(cur, prev, u.first_name));
-  return true;
-}
-
-async function sendTask(repo: Repo, bot: Bot, u: UserRow, today: string): Promise<boolean> {
-  await repo.markSent(u.id, 'last_task_sent', today);
-  const activities = await repo.listActivities(u.id);
-  if (!activities.some((a) => a.kind === 'ielts')) return false;
-  const weekIndex = Math.floor(diffDays('2026-01-05', today) / 7); // Monday-anchored week counter
-  const hws = await repo.openHomeworks(u.id);
-  const { text, keyboard } = composeMorning(u.tg_id, today, weekIndex, hws);
-  const task = taskForDay(u.tg_id, today, weekdayMon0(today), weekIndex);
-  await bot.sendMessage(u.tg_id, text, [...keyboard, ...taskKeyboard(task.id)]);
   return true;
 }
 

@@ -1,12 +1,14 @@
-import { GATE_APP_LABEL, MINUTE_PRESETS, diffDays, quizOptions, todayInTz, weekdayMon0, type VocabCard } from '@tracker/shared';
+import { GATE_APP_LABEL, speakingCardFor, todayInTz, writingTopicFor, type VocabCard } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, walletSettings, type UserRow } from '../lib/db';
 import { Bot, escapeHtml, type InlineKeyboardButton } from '../lib/telegram';
-import { reviewWord, toCard, vocabToday } from '../lib/vocab';
+import { toCard, vocabToday } from '../lib/vocab';
 import { lockNow, lockState, unlock } from '../lib/lock';
-import { helpText, partnerLinkedText, partnerText, quizText, todayStatusText, welcomeText, wordsText } from './messages';
-import { formatTask, randomTask, taskForDay, taskKeyboard, type TaskKind } from './ielts-tasks';
-import { composeMorning, detectTags, homeworkKeyboard, homeworkListText, nextLessonDate } from './homework';
+import { gameState } from '../lib/game';
+import { acceptVoice } from '../lib/tasks';
+import { helpText, partnerLinkedText, partnerText, todayStatusText, welcomeText, wordsText } from './messages';
+import { appButton, cardText, questsKeyboard, questsText, voiceReplyText } from './quests';
+import { detectTags, homeworkKeyboard, homeworkListText, nextLessonDate } from './homework';
 
 interface TgChat {
   id: number;
@@ -24,6 +26,9 @@ interface Update {
     caption?: string;
     photo?: { file_id: string; file_size?: number; width: number; height: number }[];
     document?: { file_id: string; mime_type?: string };
+    voice?: { file_id: string; file_unique_id: string; duration: number };
+    forward_origin?: unknown;
+    forward_date?: number;
   };
   channel_post?: { message_id: number; chat: TgChat; text?: string };
   callback_query?: { id: string; from: { id: number; first_name: string }; data?: string; message?: { chat: TgChat; message_id: number } };
@@ -49,37 +54,20 @@ function randomCode(): string {
   return [...a].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export function quizSeed(today: string): number {
-  return Number(today.replace(/-/g, '')) % 100000;
-}
-
-export function quizKeyboard(w: VocabCard, today: string): InlineKeyboardButton[][] {
-  const q = quizOptions(w, quizSeed(today));
-  return q.options.map((o, i) => [{ text: o.length > 60 ? o.slice(0, 57) + '…' : o, callback_data: `vq:${w.id}:${i}:${q.answer}` }]);
-}
-
-/** Send the next due word as a quiz, or a closing line when the queue is empty. */
-export async function sendNextQuiz(repo: Repo, user: UserRow, chatId: number, bot: Bot, today: string, edit?: { messageId: number; prefix: string }) {
-  const due = (await repo.vocabDue(user.id, today)).map(toCard).filter((c): c is VocabCard => !!c);
-  if (!due.length) {
-    const text = `${edit?.prefix ?? ''}All reviews done for today.`;
-    if (edit) await bot.editMessageText(chatId, edit.messageId, text);
-    else await bot.sendMessage(chatId, text);
-    return;
-  }
-  const all = await repo.vocabAll(user.id);
-  const reviewedToday = all.filter((r) => r.last_reviewed === today).length;
-  const w = due[0];
-  const text = `${edit?.prefix ?? ''}${quizText(w, reviewedToday + 1, reviewedToday + due.length)}`;
-  if (edit) await bot.editMessageText(chatId, edit.messageId, text, quizKeyboard(w, today));
-  else await bot.sendMessage(chatId, text, quizKeyboard(w, today));
-}
-
-export async function sendWords(repo: Repo, user: UserRow, chatId: number, bot: Bot, today: string) {
+/** Morning words: the new ones to study, and a button to the typed review in the app (no multiple choice, no "I know"). */
+export async function sendWords(repo: Repo, user: UserRow, chatId: number, bot: Bot, today: string, base: string) {
   const { newWords, due } = await vocabToday(repo, user, today);
   const cards = newWords.map(toCard).filter((c): c is VocabCard => !!c);
-  await bot.sendMessage(chatId, wordsText(cards, due.length));
-  if (due.length) await sendNextQuiz(repo, user, chatId, bot, today);
+  const kb = due.length ? [[appButton(base, `Review ${due.length} word${due.length === 1 ? '' : 's'}`, 'words')]] : undefined;
+  await bot.sendMessage(chatId, wordsText(cards, due.length), kb);
+}
+
+/** Today's quests with the Speaking card and the Writing topic. */
+export async function sendQuests(repo: Repo, user: UserRow, chatId: number, bot: Bot, today: string, base: string, header?: string) {
+  const s = await gameState(repo, user, today);
+  const speakingDone = (await repo.tasksOn(user.id, today, 'speaking')).filter((t) => t.status === 'accepted').length;
+  const card = speakingDone < 2 ? speakingCardFor(user.tg_id, today, speakingDone) : null;
+  await bot.sendMessage(chatId, questsText(s, card, writingTopicFor(user.tg_id, today), header), questsKeyboard(base, s));
 }
 
 let currentEnv: Env | null = null;
@@ -150,27 +138,34 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
     }
     const today = todayInTz(user.tz);
 
+    // A voice message is a Speaking answer for today's card — counted automatically.
+    if (msg.voice) {
+      const outcome = await acceptVoice(repo, user, today, {
+        seconds: msg.voice.duration,
+        fileUniqueId: msg.voice.file_unique_id,
+        forwarded: !!(msg.forward_origin || msg.forward_date),
+      });
+      await bot.sendMessage(chatId, voiceReplyText(outcome), [[appButton(url, 'Open the quests', 'today')]]);
+      return new Response('ok');
+    }
+
     if (cmd === '/today') {
       const activities = await repo.listActivities(user.id);
       const entries = await repo.entriesForDate(user.id, today);
       await bot.sendMessage(chatId, todayStatusText(today, activities, entries), kb);
     } else if (cmd === '/app') {
       await bot.sendMessage(chatId, 'Open the trainer:', kb);
-    } else if (cmd === '/task') {
-      const arg = text.split(/\s+/)[1]?.toLowerCase() as TaskKind | undefined;
-      const kinds: TaskKind[] = ['writing2', 'speaking', 'reading', 'writing1', 'listening', 'grammar'];
-      const weekIndex = Math.floor(diffDays('2026-01-05', today) / 7);
-      if (arg && kinds.includes(arg)) {
-        const task = randomTask(arg);
-        await bot.sendMessage(chatId, formatTask(task, 'Task'), taskKeyboard(task.id));
-      } else {
-        const hws = await repo.openHomeworks(user.id);
-        const { text: t, keyboard } = composeMorning(user.tg_id, today, weekIndex, hws);
-        const task = taskForDay(user.tg_id, today, weekdayMon0(today), weekIndex);
-        await bot.sendMessage(chatId, t, [...keyboard, ...taskKeyboard(task.id)]);
-      }
+    } else if (cmd === '/task' || cmd === '/quests') {
+      await sendQuests(repo, user, chatId, bot, today, url);
+    } else if (cmd === '/speak') {
+      const done = (await repo.tasksOn(user.id, today, 'speaking')).filter((t) => t.status === 'accepted').length;
+      if (done >= 2) await bot.sendMessage(chatId, 'Today’s Speaking is done. New cards tomorrow.');
+      else await bot.sendMessage(chatId, `<b>Speaking card</b> — answer with a voice message right here, at least 60 seconds. It is counted automatically.\n\n${cardText(speakingCardFor(user.tg_id, today, done))}`);
+    } else if (cmd === '/write') {
+      const topic = writingTopicFor(user.tg_id, today);
+      await bot.sendMessage(chatId, `<b>Writing · ${escapeHtml(topic.title)}</b>\n${escapeHtml(topic.prompt)}\n\nWrite it in the app: 120+ words, use 3 of your recent words. The server checks length, words and time.`, [[appButton(url, 'Write in the app', 'writing')]]);
     } else if (cmd === '/words') {
-      await sendWords(repo, user, chatId, bot, today);
+      await sendWords(repo, user, chatId, bot, today, url);
     } else if (cmd === '/minutes' || cmd === '/min') {
       const bal = await repo.balance(user.id);
       const w = walletSettings(user);
@@ -178,7 +173,7 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
       await bot.sendMessage(
         chatId,
         [
-          `<b>${Math.floor(bal)} min</b> in the wallet.`,
+          bal < 0 ? `<b>Debt: ${Math.ceil(-bal)} min</b> — time used beyond the paid minutes. The next earnings pay it back first.` : `<b>${Math.floor(bal)} min</b> in the wallet.`,
           bal < 1 ? 'Social media is locked — pass a Reading test in the app.' : `Open: ${w.apps.map((a) => GATE_APP_LABEL[a]).join(', ')}.`,
           '',
           `Earned today: ${earned} of ${w.daily_earn_cap} min.`,
@@ -231,7 +226,7 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
     } else if (text && HW_RE.test(text) && !text.startsWith('/')) {
       await addHomework(user, text.replace(HW_RE, ''), null, chatId, bot, repo, today);
     } else {
-      await bot.sendMessage(chatId, 'Log practice in the app. Homework: <code>/hw text</code> or a photo captioned “hw”. Task: /task. Words: /words.', kb);
+      await bot.sendMessage(chatId, 'Practice is counted by itself in the app. Speaking: send a voice message (see /speak). Quests: /quests. Homework: <code>/hw text</code> or a photo captioned “hw”.', kb);
     }
   } catch (e) {
     console.error('webhook error', e);
@@ -271,51 +266,14 @@ async function handleCallback(cq: NonNullable<Update['callback_query']>, bot: Bo
     return;
   }
 
-  if (kind === 'task') {
-    const [k, currentId] = rest;
-    const task = randomTask(k === 'any' ? undefined : (k as TaskKind), currentId);
-    await bot.sendMessage(chatId, formatTask(task, 'Task'), taskKeyboard(task.id));
-    await bot.answerCallbackQuery(cq.id);
-    return;
-  }
-
-  if (kind === 'done') {
-    const ielts = await ieltsActivity(repo, user);
-    if (ielts) await repo.markDone(user.id, ielts.id, today);
-    await bot.editMessageReplyMarkup(chatId, messageId, minutesKeyboard(ielts?.id ?? 0, today));
-    await bot.answerCallbackQuery(cq.id, 'Logged for today. How long?');
-    return;
-  }
-
-  if (kind === 'pm') {
-    const [activityIdS, date, minS] = rest;
-    const minutes = Number(minS);
-    if (minutes > 0) await repo.setMinutes(user.id, Number(activityIdS), date, minutes);
+  // Buttons from older messages: tasks and self-logging are replaced by quests that count themselves.
+  if (kind === 'task' || kind === 'done' || kind === 'pm' || kind === 'vq') {
+    await bot.answerCallbackQuery(cq.id, kind === 'vq' ? 'Reviews are typed in the app now' : 'Everything is counted automatically now');
     await bot.editMessageReplyMarkup(chatId, messageId, kb);
-    await bot.answerCallbackQuery(cq.id, minutes ? `${minutes} min logged` : 'Logged');
-    return;
-  }
-
-  if (kind === 'vq') {
-    const [wordIdS, chosenS, answerS] = rest;
-    const ok = chosenS === answerS;
-    const card = await reviewWord(repo, user, Number(wordIdS), ok, today);
-    const prefix = card ? `${ok ? '✓' : '✗'} <b>${escapeHtml(card.word)}</b> — ${escapeHtml(card.meaning)} (${escapeHtml(card.ru)})\n\n` : '';
-    await bot.answerCallbackQuery(cq.id, ok ? 'Correct' : 'Not quite');
-    await sendNextQuiz(repo, user, chatId, bot, today, { messageId, prefix });
     return;
   }
 
   await bot.answerCallbackQuery(cq.id);
-}
-
-function minutesKeyboard(activityId: number, date: string): InlineKeyboardButton[][] {
-  return [MINUTE_PRESETS.slice(0, 4).map((m) => ({ text: `${m} min`, callback_data: `pm:${activityId}:${date}:${m}` })), [{ text: 'Skip', callback_data: `pm:${activityId}:${date}:0` }]];
-}
-
-async function ieltsActivity(repo: Repo, user: UserRow) {
-  const activities = await repo.listActivities(user.id);
-  return activities.find((a) => a.kind === 'ielts') ?? activities[0] ?? null;
 }
 
 async function linkChatByCode(text: string, chat: TgChat, bot: Bot, repo: Repo) {
@@ -355,15 +313,10 @@ async function addHomework(user: UserRow, text: string, fileId: string | null, c
 }
 
 async function completeHomework(user: UserRow, id: number, chatId: number, bot: Bot, repo: Repo, today: string) {
+  void today;
   const h = await repo.getHomework(user.id, id);
   if (!h) return;
   await repo.completeHomework(user.id, id);
-  const ielts = await ieltsActivity(repo, user);
-  if (ielts) await repo.markDone(user.id, ielts.id, today);
   const hws = await repo.openHomeworks(user.id);
-  await bot.sendMessage(
-    chatId,
-    `Homework done — today counts as practised.${hws.length ? ` ${hws.length} left.` : ' The list is empty.'}\n\nHow long did it take?`,
-    ielts ? minutesKeyboard(ielts.id, today) : undefined,
-  );
+  await bot.sendMessage(chatId, `Homework done.${hws.length ? ` ${hws.length} left.` : ' The list is empty.'}`);
 }

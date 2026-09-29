@@ -17,15 +17,13 @@ import {
   readingLibrary,
   ReadingSubmitSchema,
   WalletSettingsPutSchema,
-  bandForTest,
-  creditForAttempt,
-  isCorrect,
-  type ReadingResult,
   type WalletResponse,
-  VocabReviewSchema,
+  VocabAnswerSchema,
+  WritingSubmitSchema,
   SentenceSubmitSchema,
   LockConfigSchema,
   UnlockSchema,
+  GateApp,
   type AuthResponse,
   type SettingsView,
   type StatsResponse,
@@ -37,9 +35,12 @@ import { HttpError, json, readJson } from '../lib/http';
 import { issueToken, verifyToken } from '../lib/session';
 import { validateInitData } from '../lib/telegram';
 import { computeStreaks, heatmapForRange, ieltsStats } from '../lib/stats';
-import { reviewWord, vocabState } from '../lib/vocab';
+import { answerWord, vocabState } from '../lib/vocab';
+import { gameState } from '../lib/game';
+import { submitReading } from '../lib/reading';
+import { speakingState, startWriting, submitWriting, writingState } from '../lib/tasks';
+import { secondsLeft } from './gate';
 import { sentenceState, submitSentence } from '../lib/sentences';
-import { syncDaySafe } from '../lib/autolog';
 import { analytics } from '../lib/analytics';
 import { configureLock, lockCheck, lockNow, lockState, removeLock, unlock } from '../lib/lock';
 
@@ -262,12 +263,32 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   if (path === '/vocab' && method === 'GET') {
     return json(await vocabState(repo, user, today));
   }
-  if (path === '/vocab/review' && method === 'POST') {
-    const body = VocabReviewSchema.parse(await readJson(req));
-    const card = await reviewWord(repo, user, body.word_id, body.ok, today);
-    if (!card) throw new HttpError(404, 'Word not started');
-    return json({ card });
+  // The old "knew it / forgot" self-assessment is gone: words are checked only by typing.
+  if (path === '/vocab/review' && method === 'POST') throw new HttpError(410, 'Update the app: words are now checked by typing');
+  if (path === '/vocab/answer' && method === 'POST') {
+    const body = VocabAnswerSchema.parse(await readJson(req));
+    const r = await answerWord(repo, user, body.word_id, body.answer, body.hint, today);
+    if (r === 'not_started') throw new HttpError(404, 'Word not started');
+    if (r === 'new_today') throw new HttpError(409, 'New words are asked from tomorrow');
+    if (r === 'already') throw new HttpError(409, 'This word is done for today');
+    return json(r);
   }
+
+  // ---- GET /api/game ---- level, XP, streak, quests, boss, today's minutes
+  if (path === '/game' && method === 'GET') {
+    return json(await gameState(repo, user, today));
+  }
+
+  // ---- /api/writing ----
+  if (path === '/writing' && method === 'GET') return json(await writingState(repo, user, today));
+  if (path === '/writing/start' && method === 'POST') return json(await startWriting(repo, user, today));
+  if (path === '/writing' && method === 'POST') {
+    const body = WritingSubmitSchema.parse(await readJson(req));
+    return json(await submitWriting(repo, user, today, body.text));
+  }
+
+  // ---- GET /api/speaking ---- today's card (answers arrive as voice messages to the bot)
+  if (path === '/speaking' && method === 'GET') return json(await speakingState(repo, user, today, env.BOT_USERNAME));
 
   // ---- GET /api/analytics ----
   if (path === '/analytics' && method === 'GET') {
@@ -342,58 +363,10 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     return json(await walletView(repo, user, env, today));
   }
 
-  // ---- POST /api/reading/submit ----
-  if (path === '/reading/submit' && method === 'POST') {
+  // ---- POST /api/reading/submit, /api/boss/submit ----
+  if ((path === '/reading/submit' || path === '/boss/submit') && method === 'POST') {
     const body = ReadingSubmitSchema.parse(await readJson(req));
-    const test = readingLibrary(user.reading_batch ?? 1).find((t) => t.id === body.test_id);
-    if (!test) throw new HttpError(404, 'Unknown test');
-
-    const wrong: ReadingResult['wrong'] = [];
-    let correct = 0;
-    test.questions.forEach((q, i) => {
-      const given = body.answers[i] ?? '';
-      if (isCorrect(q, given)) correct++;
-      else wrong.push({ n: q.n, given, answer: q.answer, explain: q.explain });
-    });
-
-    const band = bandForTest(correct, test.questions.length);
-    const w = walletSettings(user);
-    const rewarded = await repo.rewardedTestIds(user.id);
-    const earnedToday = await repo.earnedOn(user.id, today);
-    const balance = await repo.balance(user.id);
-    // A first attempt that could not pay anything would burn the test (answers are shown). Keep it for later.
-    if (!rewarded.includes(test.id) && w.wallet_enabled) {
-      if (earnedToday >= w.daily_earn_cap) throw new HttpError(409, 'Daily limit reached — this test will pay tomorrow');
-      if (balance >= w.bank_cap) throw new HttpError(409, 'The bank is full — spend some minutes first');
-    }
-    const credit = creditForAttempt({
-      band,
-      seconds: body.seconds,
-      repeat: rewarded.includes(test.id),
-      earnedToday,
-      balance,
-      dailyCap: w.daily_earn_cap,
-      bankCap: w.bank_cap,
-      limitMin: test.minutes + 10,
-    });
-
-    await repo.addAttempt(user.id, { test_id: test.id, date: today, correct, total: test.questions.length, band, seconds: body.seconds, earned: credit.earned });
-    await syncDaySafe(repo, user, today);
-    const newBalance = credit.earned ? await repo.addMinutes(user.id, today, credit.earned, 'reading', test.id, w.bank_cap) : balance;
-
-    const res: ReadingResult = {
-      correct,
-      total: test.questions.length,
-      band,
-      earned: credit.earned,
-      base: credit.base,
-      halved: credit.halved,
-      capped: credit.capped,
-      repeat: rewarded.includes(test.id),
-      balance: newBalance,
-      wrong,
-    };
-    return json(res);
+    return json(await submitReading(repo, user, today, body));
   }
 
   // ---- GET /api/export ----
@@ -419,14 +392,17 @@ async function walletView(repo: Repo, user: UserRow, env: Env, today: string): P
   const key = await repo.ensureApiKey(user);
   const earnedToday = await repo.earnedOn(user.id, today);
   const base = (env.WEBAPP_URL || '').replace(/\/+$/, '');
+  const balance = await repo.balance(user.id);
+  const open = await repo.openSession(user.id);
   return {
     ...w,
-    balance: Math.round((await repo.balance(user.id)) * 10) / 10,
+    balance: Math.round(balance * 10) / 10,
+    session: open ? { app: (GateApp.safeParse(open.app).data ?? 'other'), started_at: open.started_at, seconds_left: Math.max(0, secondsLeft(balance, open, new Date())) } : null,
     earned_today: earnedToday,
     earn_left: Math.max(0, w.daily_earn_cap - earnedToday),
     api_key: key,
     gate_url: `${base}/gate/${key}`,
-    attempts: await repo.attempts(user.id),
+    attempts: (await repo.attempts(user.id)).filter((a) => !a.test_id.startsWith('boss-')),
     ledger: await repo.ledger(user.id),
     sessions: await repo.sessions(user.id),
     done_test_ids: done,

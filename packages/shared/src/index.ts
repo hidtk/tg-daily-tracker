@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { minutesForBand, READING_TIME_LIMIT_MIN } from './reading';
 import type { VocabWord } from './vocab';
+import type { Reward } from './game';
+
+export * from './text';
+export * from './game';
+export * from './tasks';
 
 // ---------- Constants ----------
 
@@ -264,25 +269,8 @@ export interface IeltsResponse {
 
 // ---------- Date helpers (pure, no TZ) ----------
 
-export function parseIso(d: string): Date {
-  const [y, m, day] = d.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, day));
-}
-
-export function toIso(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-export function addDays(iso: string, n: number): string {
-  const d = parseIso(iso);
-  d.setUTCDate(d.getUTCDate() + n);
-  return toIso(d);
-}
-
-/** Difference in days: b - a */
-export function diffDays(a: string, b: string): number {
-  return Math.round((parseIso(b).getTime() - parseIso(a).getTime()) / 86_400_000);
-}
+export { parseIso, toIso, addDays, diffDays } from './dates';
+import { parseIso, toIso, addDays, diffDays } from './dates';
 
 /** First and last day of a YYYY-MM month. */
 export function monthBounds(month: string): { from: string; to: string } {
@@ -399,6 +387,7 @@ export const TEMPLATE_ACTIVITIES: ActivityInput[] = [
 // ---------- Social-media minutes wallet ----------
 
 export * from './reading';
+export { BOSS_TESTS } from './boss';
 
 /** Apps that can be gated by the wallet. */
 export const GateApp = z.enum(['instagram', 'tiktok', 'youtube', 'vk', 'other']);
@@ -416,8 +405,14 @@ export const GATE_APP_LABEL: Record<GateApp, string> = {
 export const WALLET_BANK_CAP_DEFAULT = 120;
 /** Cap on minutes earned in one day. */
 export const WALLET_DAILY_EARN_CAP_DEFAULT = 60;
-/** If the app never reports a close event, a session is force-closed after this. */
+/** If the app never reports a close event (and the timer loop is silent), a session is force-closed after this. */
 export const WALLET_SESSION_MAX_MIN = 45;
+/** One session never charges more than this, even if the close event comes very late. */
+export const WALLET_SESSION_HARD_CAP_MIN = 180;
+/** The Shortcuts timer loop asks the server this often (seconds) … */
+export const GATE_TICK_SECONDS = 20;
+/** … and is sent Home when less than this is left, so the overrun or loss is at most ~10 seconds. */
+export const GATE_BLOCK_BELOW_SECONDS = 10;
 
 export const WalletSettingsSchema = z.object({
   wallet_enabled: z.boolean(),
@@ -439,7 +434,7 @@ export interface WalletLedgerEntry {
   id: number;
   at: string; // ISO datetime
   delta: number; // + earned, − spent
-  reason: 'reading' | 'sentence' | 'spend' | 'expire' | 'manual';
+  reason: 'reading' | 'words' | 'sentence' | 'writing' | 'speaking' | 'unlocked' | 'quest' | 'spend' | 'expire' | 'manual';
   note: string | null;
 }
 
@@ -465,7 +460,10 @@ export interface WalletSession {
 }
 
 export interface WalletResponse extends WalletSettings {
+  /** negative = debt: time used beyond the paid minutes, paid back from the next earnings */
   balance: number;
+  /** a Shortcuts session running right now */
+  session: { app: GateApp; started_at: string; seconds_left: number } | null;
   earned_today: number;
   /** how much can still be earned today */
   earn_left: number;
@@ -520,8 +518,13 @@ export interface ReadingResult {
   halved: boolean;
   capped: boolean;
   repeat: boolean;
+  /** counted for the quest and the streak: enough time spent and not guessed */
+  counted: boolean;
   balance: number;
+  /** boss attempts: answers stay hidden until the boss is beaten */
+  boss: { id: string; pass: number; won: boolean } | null;
   wrong: { n: number; given: string; answer: string; explain: string }[];
+  reward: Reward | null;
 }
 
 /**
@@ -572,13 +575,37 @@ export interface VocabCard {
   lapses: number;
 }
 
+export type VocabQuestionKind = 'translate' | 'cloze';
+
+/** A review question: the answer is typed and checked on the server, so the word itself is not sent. */
+export interface VocabQuestion {
+  word_id: number;
+  kind: VocabQuestionKind;
+  ru: string;
+  meaning: string;
+  pos: string;
+  /** cloze: the example sentence with the word blanked out */
+  sentence: string | null;
+  /** letters in the expected answer, and its first letter (shown only as a hint) */
+  letters: number;
+  first: string;
+  /** not due yet: extra practice (still checked, still counts for the quest) */
+  practice: boolean;
+  stage: number;
+}
+
 export interface VocabResponse {
   today: string;
   per_day: number;
   /** words introduced today (or to be introduced now) */
   new_words: VocabCard[];
-  /** words whose review is due today or overdue */
-  due: VocabCard[];
+  /** due words first, then extra practice */
+  queue: VocabQuestion[];
+  due_count: number;
+  /** answers today (typed) and how many of them were right */
+  answered_today: number;
+  correct_today: number;
+  words_target: number;
   /** totals */
   learned: number; // introduced so far
   mastered: number; // stage >= REVIEW_INTERVALS.length
@@ -587,16 +614,32 @@ export interface VocabResponse {
   history: { date: string; reviews: number; correct: number }[];
 }
 
-export const VocabReviewSchema = z.object({
+export const VocabAnswerSchema = z.object({
   word_id: z.number().int().min(1),
-  ok: z.boolean(),
+  answer: z.string().max(80),
+  hint: z.boolean().default(false),
 });
-export type VocabReview = z.infer<typeof VocabReviewSchema>;
+export type VocabAnswer = z.infer<typeof VocabAnswerSchema>;
+
+export interface VocabAnswerResult {
+  ok: boolean;
+  /** ok with a small typo */
+  typo: boolean;
+  /** the expected answer (the form used in the sentence for cloze) */
+  answer: string;
+  word: string;
+  ru: string;
+  meaning: string;
+  example: string;
+  stage: number;
+  next_review: string;
+  reward: Reward;
+}
 
 // ---------- Sentences for minutes ----------
 
-export const SENTENCE_MINUTES = 1;
-export const SENTENCES_PER_DAY = 40;
+/** Sentences per day; the first EARN.sentencesCap of them also pay minutes. */
+export const SENTENCES_PER_DAY = 10;
 export const SENTENCE_MIN_WORDS = 7;
 
 const STOP = new Set(['to', 'a', 'an', 'the', 'of', 'in', 'on', 'for', 'with', 'at', 'by', 'into', 'about']);
@@ -635,6 +678,51 @@ export interface SentenceState {
   next: (VocabWord & { stage: number | null }) | null;
   recent: { word: string; text: string; date: string }[];
 }
+
+export interface SentenceResult {
+  ok: boolean;
+  reason?: string;
+  state: SentenceState;
+  reward: Reward | null;
+}
+
+// ---------- Writing and Speaking tasks ----------
+
+export interface WritingState {
+  today: string;
+  topic: { id: string; title: string; prompt: string };
+  /** words learned in the last WRITING_VOCAB_DAYS days — at least WRITING_MIN_VOCAB must be used */
+  vocab: { id: number; word: string; ru: string }[];
+  started_at: string | null;
+  /** accepted today */
+  done: { words: number; vocab: string[]; text: string } | null;
+  min_words: number;
+  min_vocab: number;
+  min_seconds: number;
+}
+
+export const WritingSubmitSchema = z.object({ text: z.string().min(1).max(4000) });
+
+export interface WritingResult {
+  ok: boolean;
+  reasons: ('short' | 'vocab' | 'language' | 'fast' | 'repeat' | 'not_started' | 'done_today')[];
+  words: number;
+  vocab_used: string[];
+  seconds: number;
+  state: WritingState;
+  reward: Reward | null;
+}
+
+export interface SpeakingState {
+  today: string;
+  /** the card to answer now (null when today's limit is reached) */
+  card: { id: string; title: string; prompt: string; points: string[] } | null;
+  done_today: { card: string; seconds: number }[];
+  per_day: number;
+  min_seconds: number;
+  bot_username: string;
+}
+
 
 export const SentenceSubmitSchema = z.object({ word_id: z.number().int().min(1), text: z.string().min(1).max(400) });
 

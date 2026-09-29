@@ -1,6 +1,7 @@
 import { syncDaySafe } from './autolog';
-import { SENTENCES_PER_DAY, SENTENCE_MINUTES, VOCAB, checkSentence, vocabById, type SentenceState } from '@tracker/shared';
-import { Repo, walletSettings, type UserRow } from './db';
+import { SENTENCES_PER_DAY, VOCAB, checkSentence, vocabById, type SentenceResult, type SentenceState } from '@tracker/shared';
+import { Repo, type UserRow } from './db';
+import { withReward } from './game';
 
 /** Next word to write a sentence for: introduced words first (least recently used), then the rest of the bank. */
 export async function nextSentenceWord(repo: Repo, user: UserRow, today: string) {
@@ -28,18 +29,25 @@ export async function sentenceState(repo: Repo, user: UserRow, today: string): P
   };
 }
 
-export async function submitSentence(repo: Repo, user: UserRow, today: string, wordId: number, text: string): Promise<{ ok: boolean; reason?: string; earned: number; state: SentenceState }> {
+/** A sentence with the word: checked by rules, then XP and (for the first few a day) a minute through the daily settle. */
+export async function submitSentence(repo: Repo, user: UserRow, today: string, wordId: number, text: string): Promise<SentenceResult> {
+  const fail = async (reason: string): Promise<SentenceResult> => ({ ok: false, reason, state: await sentenceState(repo, user, today), reward: null });
   const w = vocabById(wordId);
-  if (!w) return { ok: false, reason: 'unknown', earned: 0, state: await sentenceState(repo, user, today) };
-  const count = await repo.sentencesOn(user.id, today);
-  if (count >= SENTENCES_PER_DAY) return { ok: false, reason: 'cap', earned: 0, state: await sentenceState(repo, user, today) };
-  if (await repo.sentenceExists(user.id, wordId, today)) return { ok: false, reason: 'done_today', earned: 0, state: await sentenceState(repo, user, today) };
+  if (!w) return fail('unknown');
+  if ((await repo.sentencesOn(user.id, today)) >= SENTENCES_PER_DAY) return fail('cap');
+  if (await repo.sentenceExists(user.id, wordId, today)) return fail('done_today');
   const check = checkSentence(w.word, w.example, text);
-  if (!check.ok) return { ok: false, reason: check.reason, earned: 0, state: await sentenceState(repo, user, today) };
-  await repo.addSentence(user.id, wordId, today, text.trim());
-  await syncDaySafe(repo, user, today);
-  const ws = walletSettings(user);
-  // Sentences have their own daily cap; only the bank cap applies here.
-  await repo.addMinutes(user.id, today, SENTENCE_MINUTES, 'sentence', w.word, ws.bank_cap);
-  return { ok: true, earned: SENTENCE_MINUTES, state: await sentenceState(repo, user, today) };
+  if (!check.ok) return fail(check.reason ?? 'error');
+  const { reward } = await withReward(
+    repo,
+    user,
+    today,
+    async () => {
+      await repo.addSentence(user.id, wordId, today, text.trim());
+      await syncDaySafe(repo, user, today);
+    },
+    'sentence',
+    w.word,
+  );
+  return { ok: true, state: await sentenceState(repo, user, today), reward };
 }
