@@ -9,9 +9,21 @@ import { Progress } from './screens/Progress';
 import { SettingsScreen } from './screens/Settings';
 import { ToastProvider } from './components/Toast';
 import { Icon, Mascot } from './components/Mascot';
+import { CelebrateProvider, type GoTarget } from './components/Game';
 import { LangContext, readStoredLang, storeLang, translate, type Lang } from './i18n';
 
 type Tab = 'today' | 'words' | 'practice' | 'progress' | 'settings';
+export type PracticeFocus = 'reading' | 'writing' | 'speaking' | 'boss' | null;
+
+/** Bot buttons open the app on a screen: ?go=reading|words|writing|speaking|boss|today. */
+function initialGo(): GoTarget | null {
+  try {
+    const v = new URLSearchParams(window.location.search).get('go');
+    return v && ['reading', 'words', 'writing', 'speaking', 'boss', 'today'].includes(v) ? (v as GoTarget) : null;
+  } catch {
+    return null;
+  }
+}
 
 const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
   { id: 'today', label: 'Today', icon: () => Icon.streak(24) },
@@ -50,7 +62,24 @@ function useKeyboardOpen(): boolean {
 export function App() {
   const [session, setSession] = useState<AuthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('today');
+  const [tab, setTab] = useState<Tab>(() => {
+    const g = initialGo();
+    return g === 'words' ? 'words' : g && g !== 'today' ? 'practice' : 'today';
+  });
+  const [focus, setFocus] = useState<PracticeFocus>(() => {
+    const g = initialGo();
+    return g && g !== 'words' && g !== 'today' ? g : null;
+  });
+  const go = (to: GoTarget) => {
+    haptic.select();
+    if (to === 'words') setTab('words');
+    else if (to === 'today') setTab('today');
+    else {
+      setFocus(to);
+      setTab('practice');
+    }
+    window.scrollTo(0, 0);
+  };
   const keyboard = useKeyboardOpen();
   const [lang, setLangState] = useState<Lang>(() => readStoredLang() ?? 'en');
   const langCtx = useMemo(
@@ -91,9 +120,10 @@ export function App() {
   return (
     <LangContext.Provider value={langCtx}>
     <ToastProvider>
-      {tab === 'today' && <Today isNew={session.user.is_new} onEarn={() => setTab('practice')} />}
+    <CelebrateProvider>
+      {tab === 'today' && <Today isNew={session.user.is_new} go={go} />}
       {tab === 'words' && <Words />}
-      {tab === 'practice' && <Practice />}
+      {tab === 'practice' && <Practice focus={focus} onFocused={() => setFocus(null)} botUsername={session.settings.bot_username} />}
       {tab === 'progress' && <Progress />}
       {tab === 'settings' && <SettingsScreen initial={session.settings} />}
       <nav className={`nav${keyboard ? ' nav-hidden' : ''}`} aria-hidden={keyboard}>
@@ -111,6 +141,7 @@ export function App() {
           </button>
         ))}
       </nav>
+    </CelebrateProvider>
     </ToastProvider>
     </LangContext.Provider>
   );

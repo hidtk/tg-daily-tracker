@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { GATE_APP_LABEL, MCQ_LETTERS, READING_TESTS, TFNG_OPTIONS, UNLOCK_PRESETS, type ReadingResult, type ReadingTest, type WalletResponse } from '@tracker/shared';
+import { BOSS_TESTS, EARN, GATE_APP_LABEL, MCQ_LETTERS, READING_MIN_CORRECT, READING_MIN_SECONDS, READING_TESTS, TFNG_OPTIONS, UNLOCK_PRESETS, type GameState, type ReadingResult, type ReadingTest, type WalletResponse } from '@tracker/shared';
 import { api, ApiError } from '../api';
 import { haptic } from '../tg';
 import { useToast } from '../components/Toast';
-import { Section, Sheet } from '../components/ui';
+import { Section, Sheet, confirmDialog } from '../components/ui';
 import { useT } from '../i18n';
-import { Mascot } from '../components/Mascot';
+import { Icon, Mascot } from '../components/Mascot';
+import { BossCard, useCelebrate } from '../components/Game';
+import { SpeakingSheet, WritingSheet } from '../components/Tasks';
+import type { PracticeFocus } from '../App';
 
 /** Server times are UTC ISO strings (sometimes without the Z) — show them in the device's time. */
 function fmtLocal(iso: string): string {
@@ -19,17 +22,38 @@ function fmtClock(sec: number): string {
   return `${String(m).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
 }
 
-export function Practice() {
+export function Practice({ focus, onFocused, botUsername }: { focus: PracticeFocus; onFocused: () => void; botUsername: string }) {
   const toast = useToast();
   const t = useT();
+  const celebrate = useCelebrate();
   const [w, setW] = useState<WalletResponse | null>(null);
+  const [g, setG] = useState<GameState | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [test, setTest] = useState<ReadingTest | null>(null);
+  const [test, setTest] = useState<{ test: ReadingTest; boss: { id: string; pass: number } | null } | null>(null);
+  const [sheet, setSheet] = useState<'writing' | 'speaking' | null>(null);
 
-  const load = () => api.wallet().then(setW).catch((e: unknown) => setErr(e instanceof ApiError ? e.message : t('Could not load')));
+  const load = () => {
+    void api.game().then(setG).catch(() => undefined);
+    return api.wallet().then(setW).catch((e: unknown) => setErr(e instanceof ApiError ? e.message : t('Could not load')));
+  };
   useEffect(() => {
     void load();
   }, []);
+
+  const fightBoss = (st: GameState | null) => {
+    const b = st?.boss;
+    const bt = b && BOSS_TESTS.find((x) => x.id === b.id);
+    if (b && bt && b.unlocked && !b.tried_today) setTest({ test: bt, boss: { id: b.id, pass: b.pass } });
+    else document.getElementById('boss')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Opened from the home screen or a bot button: go straight to the task.
+  useEffect(() => {
+    if (!focus) return;
+    if (focus === 'writing' || focus === 'speaking') { setSheet(focus); onFocused(); }
+    else if (focus === 'reading') { onFocused(); }
+    else if (focus === 'boss' && g) { fightBoss(g); onFocused(); }
+  }, [focus, g]);
 
   if (err) return <div className="screen"><div className="err">{err}</div></div>;
   if (!w) return <span className="spinner" />;
@@ -45,9 +69,10 @@ export function Practice() {
       <h1>{t('Practice')}</h1>
 
       <Section label={`${t('Reading')} · ${w.library.filter((x) => !done.has(x.id)).length} ${t('to do')}`}>
-        <p className="muted small">{t('Thirteen questions, band on the official scale. A pass earns social-media minutes:')} <b>5.0–5.5 → 10</b>, <b>6.0 → 15</b>, <b>6.5 {t('and up')} → 30</b>. {t('Over the time limit the reward is halved; a test counts once.')}</p>
+        <p className="muted small">{t('The main way to earn. Thirteen questions, band on the official scale:')} <b>{t('below 5.0')} → 5</b>, <b>5.0–5.5 → 10</b>, <b>6.0 → 15</b>, <b>6.5 {t('and up')} → 30</b> {t('min')}. {t('Over the time limit the reward is halved; a test counts once.')}</p>
+        <p className="muted small">{t('A test counts for the quest and the streak if it took at least {m} minutes and at least {c} answers are right.', { m: READING_MIN_SECONDS / 60, c: READING_MIN_CORRECT })}{g && !g.minutes.reading_done && g.minutes.held > 0 ? ` ${t('{n} min are waiting for it.', { n: g.minutes.held })}` : ''}</p>
         {w.library.filter((x) => !done.has(x.id)).map((x) => (
-          <button key={x.id} className="test-row" onClick={() => { haptic.tap(); setTest(READING_TESTS.find((r) => r.id === x.id) ?? null); }}>
+          <button key={x.id} className="test-row" onClick={() => { haptic.tap(); const r = READING_TESTS.find((r) => r.id === x.id); if (r) setTest({ test: r, boss: null }); }}>
             <div>
               <div>{x.title}</div>
               <div className="muted small">{x.topic} · {x.questions} {t('questions')} · {t('about')} {x.minutes} {t('min')}</div>
@@ -64,12 +89,33 @@ export function Practice() {
         <div className="hint">{t('{a} of {b} tests unlocked', { a: w.library.length, b: w.total_tests })}</div>
       </Section>
 
+      {g && <div id="boss"><BossCard g={g} onFight={() => fightBoss(g)} /></div>}
+
+      <Section label={t('Writing and Speaking')}>
+        <button className="task-row" onClick={() => { haptic.tap(); setSheet('writing'); }}>
+          <span className="quest-icon">{Icon.pen(22)}</span>
+          <span className="grow">
+            <span className="quest-title">Writing</span>
+            <span className="quest-sub">{t('A text of 120+ words on today’s topic with 3 of your recent words. +40 XP, +{m} min.', { m: EARN.writing })}</span>
+          </span>
+          <span className="arrow">→</span>
+        </button>
+        <button className="task-row" onClick={() => { haptic.tap(); setSheet('speaking'); }}>
+          <span className="quest-icon">{Icon.mic(22)}</span>
+          <span className="grow">
+            <span className="quest-title">Speaking</span>
+            <span className="quest-sub">{t('A cue card; answer with a voice message to the bot, 60+ seconds. Counted automatically. +25 XP, +{m} min.', { m: EARN.speaking })}</span>
+          </span>
+          <span className="arrow">→</span>
+        </button>
+      </Section>
+
       {w.attempts.length > 0 && (
         <Section label={t('Archive')}>
           {[...new Map(w.attempts.map((a) => [a.test_id, a])).values()].map((a) => {
             const meta = READING_TESTS.find((r) => r.id === a.test_id);
             return (
-              <button key={a.test_id} className="test-row done" onClick={() => { haptic.tap(); setTest(meta ?? null); }}>
+              <button key={a.test_id} className="test-row done" onClick={() => { haptic.tap(); if (meta) setTest({ test: meta, boss: null }); }}>
                 <div>
                   <div>{meta?.title ?? a.test_id}</div>
                   <div className="muted small">{a.date} · {a.correct}/{a.total} · band {a.band.toFixed(1)} · +{a.earned} {t('min')}</div>
@@ -82,10 +128,12 @@ export function Practice() {
         </Section>
       )}
 
-      <Section label={t('Minutes')}>
-        <div className="balance">{Math.floor(w.balance)}<span>{t('min')}</span></div>
+      <Section label={w.balance < 0 ? t('Debt') : t('Minutes')}>
+        <div className={`balance${w.balance < 0 ? ' debt' : ''}`}>{w.balance < 0 ? `−${Math.ceil(-w.balance)}` : Math.floor(w.balance)}<span>{t('min')}</span></div>
         <div className="muted small">
-          {w.balance < 1
+          {w.balance < 0
+            ? t('Time used beyond the paid minutes. The next earnings pay it back first; until then social media stays locked.')
+            : w.balance < 1
             ? t('Social media is locked. Pass a Reading test to open it.')
             : t('About {n} minutes in {apps}.', { n: Math.floor(w.balance), apps: w.apps.map((a) => GATE_APP_LABEL[a]).join(', ') || t('the gated apps') })}
         </div>
@@ -129,19 +177,23 @@ export function Practice() {
 
       {test && (
         <ReadingRunner
-          test={test}
+          test={test.test}
+          boss={test.boss}
           onClose={() => setTest(null)}
           onDone={(r) => {
             void load();
-            toast(r.earned ? `+${r.earned} ${t('min')} · band ${r.band.toFixed(1)}` : `Band ${r.band.toFixed(1)} · ${t('no minutes')}`);
+            if (r.reward) celebrate(r.reward);
+            else toast(r.earned ? `+${r.earned} ${t('min')} · band ${r.band.toFixed(1)}` : `Band ${r.band.toFixed(1)} · ${t('no minutes')}`);
           }}
         />
       )}
+      {sheet === 'writing' && <WritingSheet onClose={() => { setSheet(null); void load(); }} />}
+      {sheet === 'speaking' && <SpeakingSheet botUsername={botUsername} onClose={() => { setSheet(null); void load(); }} />}
     </div>
   );
 }
 
-function ReadingRunner({ test, onClose, onDone }: { test: ReadingTest; onClose: () => void; onDone: (r: ReadingResult) => void }) {
+function ReadingRunner({ test, boss, onClose, onDone }: { test: ReadingTest; boss: { id: string; pass: number } | null; onClose: () => void; onDone: (r: ReadingResult) => void }) {
   const toast = useToast();
   const t = useT();
   const startedAt = useRef(Date.now());
@@ -162,9 +214,11 @@ function ReadingRunner({ test, onClose, onDone }: { test: ReadingTest; onClose: 
 
   const submit = async () => {
     if (busy) return;
+    if (sec < READING_MIN_SECONDS && !(await confirmDialog(t('Less than {m} minutes: this test will not count and pays nothing, and it can’t be taken again for minutes. Send anyway?', { m: READING_MIN_SECONDS / 60 })))) return;
     setBusy(true);
     try {
-      const r = await api.submitReading({ test_id: test.id, seconds: sec, answers });
+      const body = { test_id: test.id, seconds: sec, answers };
+      const r = boss ? await api.submitBoss(body) : await api.submitReading(body);
       setResult(r);
       haptic.success();
       onDone(r);
@@ -180,10 +234,18 @@ function ReadingRunner({ test, onClose, onDone }: { test: ReadingTest; onClose: 
     return (
       <Sheet title={t('Result')} onClose={onClose}>
         <div className="center">
-          <div className="el-mascot center"><Mascot size={96} message={result.earned ? t('Great work!') : t('Almost! Try again.')} /></div>
+          <div className="el-mascot center">
+            <Mascot
+              size={96}
+              mood={result.boss ? (result.boss.won ? 'cheer' : 'think') : result.counted ? 'cheer' : 'think'}
+              message={result.boss ? (result.boss.won ? t('Boss defeated!') : t('Not this time: band {b} needed. Tomorrow — another try.', { b: result.boss.pass.toFixed(1) })) : result.counted ? t('Great work!') : t('Almost! Try again.')}
+            />
+          </div>
           <div className="result-band">{result.band.toFixed(1)}</div>
           <div className="muted">{result.correct} {t('of')} {result.total} · {fmtClock(sec)}</div>
           <div className={`result-earn${result.earned ? '' : ' zero'}`}>{result.earned ? `+${result.earned} ${t('min')}` : t('no minutes')}</div>
+          {result.reward && result.reward.xp > 0 && <div className="muted small" style={{ marginTop: 6 }}>+{result.reward.xp} XP{result.reward.quests_done.includes('reading') ? ` · ${t('Reading quest done')}` : ''}</div>}
+          {!result.counted && !result.repeat && <div className="hint">{t('Not counted: under {m} minutes or fewer than {c} right answers.', { m: READING_MIN_SECONDS / 60, c: READING_MIN_CORRECT })}</div>}
           {result.repeat && <div className="hint">{t('This test was already counted — a repeat earns nothing.')}</div>}
           {result.halved && !result.repeat && <div className="hint">{t('Over the limit ({n} min) — the reward is halved.', { n: test.minutes + 10 })}</div>}
           {result.capped && !result.repeat && <div className="hint">{t('Daily limit or bank cap reached.')}</div>}
@@ -191,12 +253,16 @@ function ReadingRunner({ test, onClose, onDone }: { test: ReadingTest; onClose: 
         </div>
         {result.wrong.length > 0 && (
           <Section label={t('Mistakes')}>
-            {result.wrong.map((x) => (
-              <div key={x.n} className="wrong">
-                <b>{x.n}.</b> {t('yours')}: <i>{x.given || '—'}</i> · {t('correct')}: <b>{x.answer}</b>
-                <div className="muted small">{x.explain}</div>
-              </div>
-            ))}
+            {result.boss && !result.boss.won ? (
+              <p className="small">{t('Wrong: questions {list}. The right answers stay hidden until you beat the boss.', { list: result.wrong.map((x) => x.n).join(', ') })}</p>
+            ) : (
+              result.wrong.map((x) => (
+                <div key={x.n} className="wrong">
+                  <b>{x.n}.</b> {t('yours')}: <i>{x.given || '—'}</i> · {t('correct')}: <b>{x.answer}</b>
+                  <div className="muted small">{x.explain}</div>
+                </div>
+              ))
+            )}
           </Section>
         )}
       </Sheet>

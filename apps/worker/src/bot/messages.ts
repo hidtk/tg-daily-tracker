@@ -13,9 +13,9 @@ export function fmtDate(iso: string): string {
 export function welcomeText(firstName: string, isNew: boolean): string {
   const hi = `Hello, ${escapeHtml(firstName || 'there')}.`;
   if (isNew) {
-    return `${hi}\n\nThis is your IELTS trainer. Every morning I send five new words and a practice task; everything you do in the app is logged by itself. Lessons and homework live here too.\n\nOpen the app to set your target band, exam date and lesson times.`;
+    return `${hi}\n\nThis is your IELTS trainer. You earn social-media minutes with work: a Reading test pays the most, words, Writing and Speaking add a little. Three quests a day, levels, a streak and bosses — everything is counted by itself.\n\nSpeaking: send me a voice message (at least a minute) on the card from /speak and it counts automatically.\n\nOpen the app to set your target band, exam date and lesson times.`;
   }
-  return `${hi}\n\nOpen the app to practise, or use /task, /words and /hw.`;
+  return `${hi}\n\nOpen the app to practise, or use /quests, /speak and /hw.`;
 }
 
 export function helpText(): string {
@@ -23,10 +23,12 @@ export function helpText(): string {
     '<b>Commands</b>',
     '/app — open the trainer',
     '/today — today’s status',
-    '/task — today’s practice task (/task writing2 · speaking · reading · writing1 · listening · grammar)',
-    '/words — today’s vocabulary and reviews',
+    '/quests — today’s quests, the Speaking card and the Writing topic',
+    '/speak — the Speaking card: answer with a voice message here (60+ seconds), it counts by itself',
+    '/write — today’s Writing topic (written in the app)',
+    '/words — today’s new words; reviews are typed in the app',
     '/hw — homework: list; /hw text — add (or a photo with the caption “hw”); /hw done N — mark done',
-    '/minutes — social-media minutes in the wallet',
+    '/minutes — social-media minutes in the wallet (or the debt)',
     '/unlock 15 — open social media for 15 minutes (spends minutes); /lock — close early',
     '/partner — accountability partner (a link for a friend or a code for a group)',
     '/partner off — unlink the partner',
@@ -57,23 +59,6 @@ export function todayStatusText(date: string, activities: Activity[], entries: E
   });
   const done = scheduled.filter((a) => byId.get(a.id)?.done).length;
   return `<b>${fmtDate(date)}</b> — ${done ? 'practised' : 'not practised yet'}\n\n${lines.join('\n')}`;
-}
-
-export function morningText(date: string, activities: Activity[]): string {
-  void date;
-  void activities;
-  return `<b>Good morning.</b> Today’s words and task are below. Everything you do in the app is logged automatically.`;
-}
-
-export function eveningText(date: string, activities: Activity[], entries: Entry[]): string {
-  const scheduled = activities.filter((a) => isScheduledOn(a, date));
-  const byId = new Map(entries.map((e) => [e.activity_id, e]));
-  const list = scheduled.map((a) => {
-    const e = byId.get(a.id);
-    return `${mark(e)} ${escapeHtml(a.name)}${e?.plan_note ? ` — <i>${escapeHtml(e.plan_note)}</i>` : ''}`;
-  });
-  void list;
-  return `<b>Nothing counted today yet.</b> One Reading test or a quick word review logs the day by itself.`;
 }
 
 export function weeklyText(cur: WeekStats, prev: WeekStats, ownerName?: string): string {
@@ -145,10 +130,6 @@ export function wordsText(newWords: VocabCard[], dueCount: number): string {
   if (!newWords.length && !dueCount) return 'No new words today and nothing to review. Set the daily number in Settings.';
   const parts: string[] = [];
   if (newWords.length) parts.push(`<b>Today’s words</b>\n\n${newWords.map(wordLine).join('\n\n')}`);
-  if (dueCount) parts.push(`<b>${dueCount} word${dueCount === 1 ? '' : 's'} to review</b> — the quiz follows. Tap the meaning that fits.`);
+  if (dueCount) parts.push(`<b>${dueCount} word${dueCount === 1 ? '' : 's'} to review</b> — in the app you see the Russian meaning or a sentence with a gap and type the English word. Only typed answers count.`);
   return parts.join('\n\n');
-}
-
-export function quizText(w: VocabCard, index: number, total: number): string {
-  return `Review ${index} of ${total}\n\n<b>${escapeHtml(w.word)}</b> /${escapeHtml(w.ipa)}/`;
 }

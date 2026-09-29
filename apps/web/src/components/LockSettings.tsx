@@ -366,7 +366,7 @@ export function LockSettings() {
   return (
     <>
       <Section label={ru ? 'Способ 1 · iPhone: «Команды»' : 'Option 1 · iPhone: Shortcuts'}>
-        <p className="muted small">{t('No NextDNS needed: the Shortcuts app closes {apps} when you have no minutes and counts the time you spend. About 5 minutes to set up, once.', { apps: names })}</p>
+        <p className="muted small">{t('No NextDNS needed: the Shortcuts app closes {apps} when you have no minutes, and a timer sends you to the Home Screen when the paid minutes run out. About 10 minutes to set up, once.', { apps: names })}</p>
         <div className="row" style={{ gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
           <button className="btn solid" onClick={() => { haptic.tap(); setGuide(true); }}>{t('Step-by-step guide')}</button>
           <a className="btn" href={LINKS.shortcutsApp} onClick={() => haptic.tap()}>{ru ? 'Открыть «Команды»' : 'Open Shortcuts'}</a>

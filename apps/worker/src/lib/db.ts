@@ -1,5 +1,5 @@
-import type { Activity, ActivityInput, Entry, Homework, Lesson, LessonInput, MockTest, Proof, ReadingAttemptView, Settings, Skill, WalletLedgerEntry, WalletSession, WalletSettings } from '@tracker/shared';
-import { DEFAULT_WALLET_SETTINGS, GateApp, TEMPLATE_ACTIVITIES } from '@tracker/shared';
+import type { Activity, ActivityInput, DayActivity, EarnSource, Entry, Homework, Lesson, LessonInput, MockTest, Proof, ReadingAttemptView, Settings, Skill, WalletLedgerEntry, WalletSession, WalletSettings } from '@tracker/shared';
+import { DEFAULT_WALLET_SETTINGS, EMPTY_DAY, GateApp, TEMPLATE_ACTIVITIES, XP } from '@tracker/shared';
 
 export interface UserRow {
   id: number;
@@ -45,6 +45,38 @@ export interface UserRow {
   lock_password: string | null;
   lock_error: string | null;
 }
+
+export interface SessionRow {
+  id: number;
+  user_id: number;
+  app: string;
+  started_at: string;
+  ended_at: string | null;
+  minutes: number;
+  last_seen: string | null;
+  closed_by: string | null;
+}
+
+export interface TaskRow {
+  id: number;
+  user_id: number;
+  kind: 'writing' | 'speaking';
+  date: string;
+  topic: string;
+  started_at: string;
+  submitted_at: string | null;
+  status: 'started' | 'accepted';
+  text: string | null;
+  words: number;
+  vocab: string | null;
+  seconds: number;
+  file_unique_id: string | null;
+}
+
+/** Ledger reasons that are earnings (count towards the daily cap). */
+export const EARN_REASONS: EarnSource[] = ['reading', 'words', 'sentence', 'writing', 'speaking', 'unlocked', 'quest'];
+/** Earnings from work other than Reading (paid through the daily settle). */
+export const NON_READING_REASONS: EarnSource[] = ['words', 'sentence', 'writing', 'speaking', 'unlocked'];
 
 export interface VocabRow {
   user_id: number;
@@ -436,13 +468,24 @@ export class Repo {
 
   /** What was actually done in the app on a date (source for the automatic day log). */
   async activityOn(userId: number, date: string, maxSecondsPerTest: number) {
-    const [r, v, s] = await this.db.batch([
+    const [r, v, s, w, sp] = await this.db.batch([
       this.db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(MIN(seconds, ?3)), 0) AS sec FROM reading_attempts WHERE user_id = ?1 AND date = ?2').bind(userId, date, maxSecondsPerTest),
       this.db.prepare('SELECT COUNT(*) AS n FROM vocab_reviews WHERE user_id = ? AND date = ?').bind(userId, date),
       this.db.prepare('SELECT COUNT(*) AS n FROM vocab_sentences WHERE user_id = ? AND date = ?').bind(userId, date),
+      this.db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(MIN(seconds, ?3)), 0) AS sec FROM practice_tasks WHERE user_id = ?1 AND date = ?2 AND kind = 'writing' AND status = 'accepted'").bind(userId, date, maxSecondsPerTest),
+      this.db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(seconds), 0) AS sec FROM practice_tasks WHERE user_id = ? AND date = ? AND kind = 'speaking' AND status = 'accepted'").bind(userId, date),
     ]);
     const first = (x: D1Result) => (x.results?.[0] ?? {}) as { n?: number; sec?: number };
-    return { readingTests: first(r).n ?? 0, readingSeconds: first(r).sec ?? 0, reviews: first(v).n ?? 0, sentences: first(s).n ?? 0 };
+    return {
+      readingTests: first(r).n ?? 0,
+      readingSeconds: first(r).sec ?? 0,
+      reviews: first(v).n ?? 0,
+      sentences: first(s).n ?? 0,
+      writings: first(w).n ?? 0,
+      writingSeconds: first(w).sec ?? 0,
+      voices: first(sp).n ?? 0,
+      voiceSeconds: first(sp).sec ?? 0,
+    };
   }
 
   /** Automatic day entry: done, with minutes and skills computed from app activity. */
@@ -638,6 +681,21 @@ export class Repo {
     return this.balance(userId);
   }
 
+  async chestTaken(userId: number, date: string): Promise<boolean> {
+    return !!(await this.db.prepare("SELECT 1 AS x FROM wallet_ledger WHERE user_id = ? AND date = ? AND reason = 'quest'").bind(userId, date).first());
+  }
+
+  /** The daily chest: always leaves a ledger row (even worth 0 when a cap was hit), so it opens once a day. */
+  async openChest(userId: number, date: string, minutes: number, cap: number) {
+    if (minutes > 0) {
+      await this.db
+        .prepare('UPDATE users SET sm_balance = CASE WHEN ?1 > 0 THEN MIN(MAX(?2, sm_balance), sm_balance + ?1) ELSE sm_balance END WHERE id = ?3')
+        .bind(minutes, cap, userId)
+        .run();
+    }
+    await this.db.prepare("INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, 'quest', 'chest')").bind(userId, date, minutes).run();
+  }
+
   /** Atomically spend minutes if the balance covers them. Returns false (and writes nothing) otherwise. */
   async trySpend(userId: number, date: string, minutes: number, note: string): Promise<boolean> {
     const r = await this.db.prepare('UPDATE users SET sm_balance = sm_balance - ?1 WHERE id = ?2 AND sm_balance >= ?1').bind(minutes, userId).run();
@@ -649,13 +707,29 @@ export class Repo {
     return true;
   }
 
-  /** Minutes earned from Reading today — the only source the daily cap applies to. */
+  /** Minutes earned today from every kind of work (refunds are not earnings) — the daily cap applies to this. */
   async earnedOn(userId: number, date: string): Promise<number> {
-    const r = await this.db
-      .prepare("SELECT COALESCE(SUM(delta), 0) AS s FROM wallet_ledger WHERE user_id = ? AND date = ? AND delta > 0 AND reason = 'reading'")
-      .bind(userId, date)
-      .first<{ s: number }>();
-    return r?.s ?? 0;
+    const by = await this.earnedBySource(userId, date);
+    return Math.round(Object.values(by).reduce((s, v) => s + (v ?? 0), 0) * 10) / 10;
+  }
+
+  async earnedBySource(userId: number, date: string): Promise<Partial<Record<EarnSource, number>>> {
+    const { results } = await this.db
+      .prepare(`SELECT reason, SUM(delta) AS s FROM wallet_ledger WHERE user_id = ? AND date = ? AND delta > 0 AND reason IN (${EARN_REASONS.map(() => '?').join(', ')}) GROUP BY reason`)
+      .bind(userId, date, ...EARN_REASONS)
+      .all<{ reason: EarnSource; s: number }>();
+    return Object.fromEntries(results.map((r) => [r.reason, Math.round(r.s * 10) / 10]));
+  }
+
+  /**
+   * Charge time actually used in an app. Unlike addMinutes this may go below zero:
+   * the overrun becomes a debt that the next earnings pay back.
+   */
+  async charge(userId: number, date: string, minutes: number, note: string): Promise<number> {
+    if (minutes <= 0) return this.balance(userId);
+    await this.db.prepare('UPDATE users SET sm_balance = sm_balance - ? WHERE id = ?').bind(minutes, userId).run();
+    await this.db.prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)').bind(userId, date, -minutes, 'spend', note).run();
+    return this.balance(userId);
   }
 
   /** Tests already taken at least once. Any attempt counts: the answers were shown, so a retake never pays. */
@@ -667,12 +741,84 @@ export class Repo {
     return results.map((r) => r.test_id);
   }
 
-  async addAttempt(userId: number, a: Omit<ReadingAttemptView, 'id' | 'first'> ): Promise<number> {
+  async addAttempt(userId: number, a: Omit<ReadingAttemptView, 'id' | 'first'> & { counted: boolean }): Promise<number> {
     const r = await this.db
-      .prepare('INSERT INTO reading_attempts (user_id, test_id, date, correct, total, band, seconds, earned) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(userId, a.test_id, a.date, a.correct, a.total, a.band, a.seconds, a.earned)
+      .prepare('INSERT INTO reading_attempts (user_id, test_id, date, correct, total, band, seconds, earned, counted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(userId, a.test_id, a.date, a.correct, a.total, a.band, a.seconds, a.earned, a.counted ? 1 : 0)
       .run();
     return Number(r.meta.last_row_id);
+  }
+
+  /** Boss attempts, oldest first. */
+  async bossAttempts(userId: number) {
+    const { results } = await this.db
+      .prepare("SELECT test_id, date, band, correct FROM reading_attempts WHERE user_id = ? AND test_id LIKE 'boss-%' ORDER BY id")
+      .bind(userId)
+      .all<{ test_id: string; date: string; band: number; correct: number }>();
+    return results;
+  }
+
+  /** Per-day counts for XP, quests and the streak — the whole history, grouped by date. */
+  async gameDays(userId: number, onlyDate: string | null = null): Promise<DayActivity[]> {
+    const f = 'user_id = ?1 AND (?2 IS NULL OR date = ?2)';
+    const [r, v, s, t] = await this.db.batch([
+      this.db.prepare(`SELECT date, SUM(counted) AS n, SUM(CASE WHEN counted = 1 THEN ${XP.readingBase} + ${XP.readingPerCorrect} * correct ELSE 0 END) AS xp FROM reading_attempts WHERE ${f} GROUP BY date`).bind(userId, onlyDate),
+      this.db.prepare(`SELECT date, SUM(CASE WHEN ok = 1 AND hint = 0 THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN ok = 1 AND hint = 1 THEN 1 ELSE 0 END) AS hint, SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS wrong FROM vocab_reviews WHERE ${f} AND kind <> 'self' GROUP BY date`).bind(userId, onlyDate),
+      this.db.prepare(`SELECT date, COUNT(*) AS n FROM vocab_sentences WHERE ${f} GROUP BY date`).bind(userId, onlyDate),
+      this.db.prepare(`SELECT date, SUM(CASE WHEN kind = 'writing' THEN 1 ELSE 0 END) AS w, SUM(CASE WHEN kind = 'speaking' THEN 1 ELSE 0 END) AS s FROM practice_tasks WHERE ${f} AND status = 'accepted' GROUP BY date`).bind(userId, onlyDate),
+    ]);
+    const days = new Map<string, DayActivity>();
+    const day = (date: string) => {
+      let d = days.get(date);
+      if (!d) days.set(date, (d = { date, ...EMPTY_DAY }));
+      return d;
+    };
+    for (const x of (r.results ?? []) as { date: string; n: number; xp: number }[]) Object.assign(day(x.date), { readingCounted: x.n ?? 0, readingXp: x.xp ?? 0 });
+    for (const x of (v.results ?? []) as { date: string; ok: number; hint: number; wrong: number }[]) Object.assign(day(x.date), { wordsOk: x.ok ?? 0, wordsHint: x.hint ?? 0, wordsWrong: x.wrong ?? 0 });
+    for (const x of (s.results ?? []) as { date: string; n: number }[]) day(x.date).sentences = x.n ?? 0;
+    for (const x of (t.results ?? []) as { date: string; w: number; s: number }[]) Object.assign(day(x.date), { writings: x.w ?? 0, voices: x.s ?? 0 });
+    return [...days.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+  }
+
+  // ---- writing & speaking tasks ----
+
+  tasksOn(userId: number, date: string, kind: 'writing' | 'speaking') {
+    return this.db
+      .prepare('SELECT * FROM practice_tasks WHERE user_id = ? AND date = ? AND kind = ? ORDER BY id')
+      .bind(userId, date, kind)
+      .all<TaskRow>()
+      .then((r) => r.results);
+  }
+
+  async startTask(userId: number, date: string, kind: 'writing' | 'speaking', topic: string): Promise<TaskRow> {
+    const r = await this.db.prepare('INSERT INTO practice_tasks (user_id, kind, date, topic) VALUES (?, ?, ?, ?)').bind(userId, kind, date, topic).run();
+    return (await this.db.prepare('SELECT * FROM practice_tasks WHERE id = ?').bind(Number(r.meta.last_row_id)).first<TaskRow>())!;
+  }
+
+  /** Accept a started task once (a parallel submit can't accept it twice). */
+  async acceptWriting(id: number, text: string, words: number, vocab: string[], seconds: number): Promise<boolean> {
+    const r = await this.db
+      .prepare(`UPDATE practice_tasks SET status = 'accepted', submitted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), text = ?, words = ?, vocab = ?, seconds = ? WHERE id = ? AND status = 'started'`)
+      .bind(text, words, JSON.stringify(vocab), seconds, id)
+      .run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  /** Record an accepted voice answer; false if this exact voice was already counted. */
+  async addVoice(userId: number, date: string, card: string, seconds: number, fileUniqueId: string): Promise<boolean> {
+    const r = await this.db
+      .prepare(`INSERT OR IGNORE INTO practice_tasks (user_id, kind, date, topic, status, submitted_at, seconds, file_unique_id) VALUES (?, 'speaking', ?, ?, 'accepted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, ?)`)
+      .bind(userId, date, card, seconds, fileUniqueId)
+      .run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  async recentWritings(userId: number, limit = 30): Promise<string[]> {
+    const { results } = await this.db
+      .prepare("SELECT text FROM practice_tasks WHERE user_id = ? AND kind = 'writing' AND status = 'accepted' ORDER BY id DESC LIMIT ?")
+      .bind(userId, limit)
+      .all<{ text: string }>();
+    return results.map((r) => r.text);
   }
 
   async attempts(userId: number, limit = 30): Promise<ReadingAttemptView[]> {
@@ -685,17 +831,27 @@ export class Repo {
 
   async ledger(userId: number, limit = 40): Promise<WalletLedgerEntry[]> {
     const { results } = await this.db
-      .prepare('SELECT id, at, delta, reason, note FROM wallet_ledger WHERE user_id = ? ORDER BY id DESC LIMIT ?')
+      .prepare('SELECT id, at, delta, reason, note FROM wallet_ledger WHERE user_id = ? AND delta <> 0 ORDER BY id DESC LIMIT ?')
       .bind(userId, limit)
       .all<WalletLedgerEntry>();
     return results;
   }
 
   openSession(userId: number) {
-    return this.db
-      .prepare('SELECT * FROM wallet_sessions WHERE user_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1')
-      .bind(userId)
-      .first<{ id: number; app: string; started_at: string; ended_at: string | null; minutes: number }>();
+    return this.db.prepare('SELECT * FROM wallet_sessions WHERE user_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1').bind(userId).first<SessionRow>();
+  }
+
+  lastSession(userId: number) {
+    return this.db.prepare('SELECT * FROM wallet_sessions WHERE user_id = ? ORDER BY id DESC LIMIT 1').bind(userId).first<SessionRow>();
+  }
+
+  async markKicked(id: number) {
+    await this.db.prepare("UPDATE wallet_sessions SET closed_by = 'kicked' WHERE id = ? AND closed_by = 'tick'").bind(id).run();
+  }
+
+  /** Heartbeat from the Shortcuts timer loop. */
+  async touchSession(id: number) {
+    await this.db.prepare(`UPDATE wallet_sessions SET last_seen = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND ended_at IS NULL`).bind(id).run();
   }
 
   async startSession(userId: number, app: string): Promise<number> {
@@ -707,10 +863,10 @@ export class Repo {
   }
 
   /** Close a session once. Returns false if it was already closed (a concurrent request got there first). */
-  async endSession(id: number, minutes: number): Promise<boolean> {
+  async endSession(id: number, minutes: number, closedBy: string): Promise<boolean> {
     const r = await this.db
-      .prepare(`UPDATE wallet_sessions SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), minutes = ? WHERE id = ? AND ended_at IS NULL`)
-      .bind(minutes, id)
+      .prepare(`UPDATE wallet_sessions SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), minutes = ?, closed_by = ? WHERE id = ? AND ended_at IS NULL`)
+      .bind(minutes, closedBy, id)
       .run();
     return (r.meta.changes ?? 0) > 0;
   }
@@ -723,12 +879,12 @@ export class Repo {
     return results.map((r) => ({ ...r, app: (r.app as WalletSession['app']) }));
   }
 
-  /** Sessions left open by a missed close event, across all users. */
+  /** Sessions left open by a missed close event (no close and no heartbeat for a while), across all users. */
   async staleSessions(olderThanMin: number) {
     const { results } = await this.db
-      .prepare(`SELECT * FROM wallet_sessions WHERE ended_at IS NULL AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)`)
+      .prepare(`SELECT * FROM wallet_sessions WHERE ended_at IS NULL AND COALESCE(last_seen, started_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)`)
       .bind(`-${olderThanMin} minutes`)
-      .all<{ id: number; user_id: number; app: string; started_at: string }>();
+      .all<SessionRow>();
     return results;
   }
 
@@ -776,14 +932,24 @@ export class Repo {
     return this.db.prepare('SELECT * FROM vocab_progress WHERE user_id = ? AND word_id = ?').bind(userId, wordId).first<VocabRow>();
   }
 
-  async vocabRecordReview(userId: number, wordId: number, ok: boolean, today: string, stage: number, nextReview: string) {
-    await this.db
+  /**
+   * Record a typed answer once per word per day. Returns false (and writes nothing) if the word was already
+   * answered today — a second tab or a double tap can't earn twice.
+   */
+  async vocabRecordReview(userId: number, wordId: number, a: { ok: boolean; hint: boolean; practice: boolean; kind: 'translate' | 'cloze' }, today: string, stage: number, nextReview: string): Promise<boolean> {
+    const r = await this.db
       .prepare(
-        `UPDATE vocab_progress SET stage = ?, next_review = ?, reviews = reviews + 1, lapses = lapses + ?, last_reviewed = ? WHERE user_id = ? AND word_id = ?`,
+        `UPDATE vocab_progress SET stage = ?, next_review = ?, reviews = reviews + 1, lapses = lapses + ?, last_reviewed = ?
+         WHERE user_id = ? AND word_id = ? AND (last_reviewed IS NULL OR last_reviewed <> ?)`,
       )
-      .bind(stage, nextReview, ok ? 0 : 1, today, userId, wordId)
+      .bind(stage, nextReview, a.ok ? 0 : 1, today, userId, wordId, today)
       .run();
-    await this.db.prepare('INSERT INTO vocab_reviews (user_id, word_id, date, ok) VALUES (?, ?, ?, ?)').bind(userId, wordId, today, ok ? 1 : 0).run();
+    if ((r.meta.changes ?? 0) === 0) return false;
+    await this.db
+      .prepare('INSERT INTO vocab_reviews (user_id, word_id, date, ok, kind, hint, practice) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(userId, wordId, today, a.ok ? 1 : 0, a.kind, a.hint ? 1 : 0, a.practice ? 1 : 0)
+      .run();
+    return true;
   }
 
   async vocabHistory(userId: number, from: string): Promise<{ date: string; reviews: number; correct: number }[]> {

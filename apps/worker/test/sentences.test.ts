@@ -21,7 +21,7 @@ describe('sentence rules', () => {
 
 describe('reading library', () => {
   it('releases tests in batches', () => {
-    expect(READING_TESTS.length).toBe(16);
+    expect(READING_TESTS.length).toBe(24);
     expect(readingLibrary(1).map((t) => t.id)).toEqual(['rt-01', 'rt-02', 'rt-03', 'rt-04']);
     expect(readingLibrary(2).length).toBe(2 * READING_BATCH_SIZE);
     expect(readingLibrary(99).length).toBe(READING_TESTS.length);

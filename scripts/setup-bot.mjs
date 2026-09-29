@@ -41,7 +41,9 @@ await call('setMyCommands', {
   commands: [
     { command: 'app', description: 'Open the trainer' },
     { command: 'today', description: 'Today’s status' },
-    { command: 'task', description: 'Today’s practice task' },
+    { command: 'quests', description: 'Today’s quests, Speaking card, Writing topic' },
+    { command: 'speak', description: 'Speaking card — answer with a voice message' },
+    { command: 'write', description: 'Today’s Writing topic' },
     { command: 'words', description: 'Today’s words and reviews' },
     { command: 'hw', description: 'Homework: list / add / done' },
     { command: 'minutes', description: 'Social-media minutes' },
