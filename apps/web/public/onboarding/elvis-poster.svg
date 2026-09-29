@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a86ee"/>
+      <stop offset="1" stop-color="#1668e3"/>
+    </linearGradient>
+    <linearGradient id="btn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3f1ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" rx="24" fill="url(#bg)"/>
+  <circle cx="320" cy="160" r="58" fill="#0d4ea6"/>
+  <circle cx="320" cy="154" r="58" fill="url(#btn)"/>
+  <path d="M302 124 L352 154 L302 184 Z" fill="#1668e3"/>
+  <text x="320" y="270" text-anchor="middle" font-family="Nunito, system-ui, sans-serif" font-size="30" font-weight="800" fill="#ffffff">Элвис · IELTS</text>
+</svg>

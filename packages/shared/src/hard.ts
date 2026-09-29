@@ -1,7 +1,7 @@
 import type { ReadingTest } from './reading';
 
-/** Boss tests: harder original IELTS-style passages that guard level milestones. Answers are shown only after a win. */
-export const BOSS_TESTS: ReadingTest[] = [
+/** Harder original IELTS-style passages: the "hard" Reading tasks in the shop. */
+export const HARD_TESTS: ReadingTest[] = [
   {
     id: 'boss-1',
     title: 'The Puzzle of the Placebo',

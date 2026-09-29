@@ -1,6 +1,6 @@
 /**
- * Writing topics and Speaking cue cards for the in-app tasks. Short on purpose: a Writing answer is
- * 120+ words (a strong paragraph), a Speaking answer is a 1–2 minute voice message to the bot.
+ * Writing topics and Speaking cue cards for the shop tasks. A Writing answer is a short (60+ words) or a long
+ * (150+ words) text; a Speaking answer is a voice message to the bot.
  */
 
 export interface WritingTopic {
@@ -65,13 +65,13 @@ function dayIndex(date: string): number {
   return Math.floor((Date.parse(`${date}T00:00:00Z`) - Date.parse('2026-01-01T00:00:00Z')) / 86_400_000);
 }
 
-/** Today's Writing topic: rotates daily, with a per-user offset. */
-export function writingTopicFor(userKey: number, date: string): WritingTopic {
-  const i = (dayIndex(date) + hash(`w${userKey}`)) % WRITING_TOPICS.length;
+/** Today's Writing topic number `n` (0 = the long text, 1 = the short one): rotates daily, with a per-user offset. */
+export function writingTopicFor(userKey: number, date: string, n = 0): WritingTopic {
+  const i = (dayIndex(date) * 2 + n + hash(`w${userKey}`)) % WRITING_TOPICS.length;
   return WRITING_TOPICS[(i + WRITING_TOPICS.length) % WRITING_TOPICS.length];
 }
 
-/** Speaking card number `n` for today (0 = first answer of the day, 1 = second). */
+/** Speaking card number `n` for today (0 = the long answer, 1 = the short one). */
 export function speakingCardFor(userKey: number, date: string, n = 0): SpeakingCard {
   const i = (dayIndex(date) * 2 + n + hash(`s${userKey}`)) % SPEAKING_CARDS.length;
   return SPEAKING_CARDS[(i + SPEAKING_CARDS.length) % SPEAKING_CARDS.length];

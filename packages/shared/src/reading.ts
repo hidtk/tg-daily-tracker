@@ -142,7 +142,7 @@ export const READING_TESTS_1: ReadingTest[] = [
       { n: 10, type: 'gap', prompt: 'Slow-wave sleep dominates the first ______ of the night.', answer: 'half', explain: 'Paragraph B.' },
       { n: 11, type: 'gap', prompt: 'In rats, how often replay occurs predicts the next day’s ______.', answer: 'performance', explain: 'Paragraph C: "its frequency predicts how well the animal performs".' },
       { n: 12, type: 'gap', prompt: 'The hippocampus learns ______ but stores little.', answer: 'quickly', explain: 'Paragraph D.' },
-      { n: 13, type: 'gap', prompt: 'Cueing only helps with material that has already been ______.', answer: 'learned', explain: 'Paragraph F.' },
+      { n: 13, type: 'gap', prompt: 'Cueing only helps with material that has already been ______.', answer: 'learned', accept: ['learnt'], explain: 'Paragraph F.' },
     ],
   },
 ];
@@ -169,47 +169,71 @@ export function rawToBand(raw40: number): number {
 
 /** Band for a short test: the raw score is scaled to the 40-question table. */
 export function bandForTest(correct: number, total: number): number {
-  return rawToBand(Math.round((correct / total) * 40));
+  return rawToBand(Math.round((correct / Math.max(1, total)) * 40));
 }
 
-/** Minutes of social media earned for a band. */
-export function minutesForBand(band: number): number {
-  if (band >= 6.5) return 30;
-  if (band >= 6.0) return 15;
-  if (band >= 5.0) return 10;
-  return 5; // consolation for an honest attempt
-}
+const NUMBERS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
 
-/** Over this many minutes on a 15-minute test, the reward is halved (anti-Google). */
-export const READING_TIME_LIMIT_MIN = 25;
-
+/** Lowercase, straight quotes, no punctuation, no leading article, single spaces. */
 export function normalizeAnswer(s: string): string {
-  return s.trim().toLowerCase().replace(/[.,!?;:'"()]/g, '').replace(/\s+/g, ' ');
+  return s
+    .toLowerCase()
+    .replace(/[’‘`]/g, "'")
+    .replace(/[.,!?;:"()[\]]/g, ' ')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(a|an|the) /, '');
 }
 
+/** Spellings that mean the same answer: digits and number words, British and American endings, spaces and hyphens. */
+function answerVariants(s: string): Set<string> {
+  const base = normalizeAnswer(s);
+  const out = new Set<string>();
+  const add = (x: string) => {
+    out.add(x);
+    out.add(x.replace(/[-' ]/g, ''));
+  };
+  add(base);
+  if (/^\d+$/.test(base) && Number(base) < NUMBERS.length) add(NUMBERS[Number(base)]);
+  const i = NUMBERS.indexOf(base);
+  if (i >= 0) add(String(i));
+  add(base.replace(/is(e|ed|es|ing|ation|ations)\b/g, 'iz$1'));
+  add(base.replace(/iz(e|ed|es|ing|ation|ations)\b/g, 'is$1'));
+  add(base.replace(/(me|cen|li|thea|fi)tre(s?)\b/g, '$1ter$2'));
+  add(base.replace(/(me|cen|li|thea|fi)ter(s?)\b/g, '$1tre$2'));
+  add(base.replace(/(colo|behavio|favo|harbo|labo|neighbo|hono|humo|vapo)ur/g, '$1r'));
+  add(base.replace(/(colo|behavio|favo|harbo|labo|neighbo|hono|humo|vapo)r(?!u)/g, '$1ur'));
+  return out;
+}
+
+/**
+ * Checked like the exam, but fair about form: case, a leading article, spaces and hyphens, digits vs number words
+ * and British vs American spelling don't matter; extra correct spellings come from the question's `accept` list.
+ * Spelling itself counts (as in IELTS).
+ */
 export function isCorrect(q: ReadingQuestion, given: string): boolean {
   const g = normalizeAnswer(given);
   if (!g) return false;
-  if (q.type === 'gap') {
-    const variants = [q.answer, ...(q.accept ?? [])].map(normalizeAnswer);
-    return variants.includes(g);
+  if (q.type === 'tfng') {
+    const map: Record<string, string> = { t: 'true', f: 'false', ng: 'not given', notgiven: 'not given', 'not-given': 'not given' };
+    return (map[g] ?? g) === normalizeAnswer(q.answer);
   }
-  return normalizeAnswer(q.answer) === g;
+  if (q.type === 'mcq') return g === normalizeAnswer(q.answer);
+  const accepted = new Set<string>();
+  for (const v of [q.answer, ...(q.accept ?? [])]) for (const x of answerVariants(v)) accepted.add(x);
+  return [...answerVariants(g)].some((x) => accepted.has(x));
 }
 
-export const TFNG_OPTIONS = ['TRUE', 'FALSE', 'NOT GIVEN'];
-export const MCQ_LETTERS = ['A', 'B', 'C', 'D'];
+/** "Paragraph B: …" → "B": a hint for a wrong answer that does not give the answer away. */
+export function paragraphHint(explain: string): string | null {
+  return explain.match(/Paragraphs? ([A-H])/)?.[1] ?? null;
+}
 
 import { READING_TESTS_2 } from './reading2';
 import { READING_TESTS_3 } from './reading3';
 import { READING_TESTS_4 } from './reading4';
 import { READING_TESTS_5 } from './reading5';
 
-/** The full library, released to a user in batches of READING_BATCH_SIZE. */
+/** The regular library, in the order the shop offers it. */
 export const READING_TESTS: ReadingTest[] = [...READING_TESTS_1, ...READING_TESTS_2, ...READING_TESTS_3, ...READING_TESTS_4, ...READING_TESTS_5];
-export const READING_BATCH_SIZE = 4;
-
-/** Tests visible to a user who has unlocked `batch` batches. */
-export function readingLibrary(batch: number): ReadingTest[] {
-  return READING_TESTS.slice(0, Math.max(1, batch) * READING_BATCH_SIZE);
-}

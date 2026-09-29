@@ -37,20 +37,11 @@ if (!hook.ok) {
   process.exit(1);
 }
 await call('setChatMenuButton', { menu_button: { type: 'web_app', text: 'IELTS', web_app: { url: base } } });
+// Only what is really needed: everything else is in the app; Speaking answers are plain voice messages.
 await call('setMyCommands', {
   commands: [
-    { command: 'app', description: 'Open the trainer' },
-    { command: 'today', description: 'Today’s status' },
-    { command: 'quests', description: 'Today’s quests, Speaking card, Writing topic' },
-    { command: 'speak', description: 'Speaking card — answer with a voice message' },
-    { command: 'write', description: 'Today’s Writing topic' },
-    { command: 'words', description: 'Today’s words and reviews' },
-    { command: 'hw', description: 'Homework: list / add / done' },
-    { command: 'minutes', description: 'Social-media minutes' },
-    { command: 'unlock', description: 'Open social media for N minutes' },
-    { command: 'lock', description: 'Lock social media now' },
-    { command: 'partner', description: 'Accountability partner' },
-    { command: 'help', description: 'Help' },
+    { command: 'start', description: 'Open the app' },
+    { command: 'help', description: 'How it works' },
   ],
 });
 const info = await call('getWebhookInfo', {});

@@ -1,4 +1,23 @@
-import type { Activity, AnalyticsResponse, AuthResponse, Entry, GameState, Homework, IeltsResponse, Lesson, LessonInput, MockTest, ReadingResult, ReadingSubmit, SentenceResult, SentenceState, Settings, SettingsView, SpeakingState, StatsResponse, TodayResponse, VocabAnswerResult, VocabResponse, WalletResponse, WalletSettings, WritingResult, WritingState } from '@tracker/shared';
+import type {
+  AuthResponse,
+  ProgressResponse,
+  ReadingResult,
+  ReadingSubmit,
+  ReadingTask,
+  SentenceResult,
+  SentenceState,
+  Settings,
+  SettingsView,
+  ShopResponse,
+  SpeakingState,
+  TaskSize,
+  VocabAnswerResult,
+  VocabResponse,
+  WalletResponse,
+  WalletSettings,
+  WritingResult,
+  WritingState,
+} from '@tracker/shared';
 import { deviceTz, getInitData } from './tg';
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '';
@@ -42,47 +61,27 @@ export async function auth(): Promise<AuthResponse> {
   return r;
 }
 
-export function exportUrl(): string {
-  return `${BASE}/api/export?token=${encodeURIComponent(token ?? '')}`;
-}
-
 export const api = {
-  today: (date?: string) => request<TodayResponse>('GET', `/api/today${date ? `?date=${date}` : ''}`),
-  saveEntries: (entries: Omit<Entry, 'updated_at' | 'proofs'>[]) => request<{ ok: true; entries: Entry[] }>('PUT', '/api/entries', { entries }),
-  activities: () => request<{ activities: Activity[] }>('GET', '/api/activities'),
-  stats: (month: string) => request<StatsResponse>('GET', `/api/stats?month=${month}`),
-  settings: () => request<SettingsView>('GET', '/api/settings'),
   saveSettings: (s: Partial<Settings>) => request<SettingsView>('PUT', '/api/settings', s),
-  export: () => request<unknown>('GET', '/api/export'),
-  ielts: () => request<IeltsResponse>('GET', '/api/ielts'),
-  addMock: (m: Omit<MockTest, 'id'>) => request<MockTest>('POST', '/api/mocks', m),
-  deleteMock: (id: number) => request<{ ok: true }>('DELETE', `/api/mocks/${id}`),
-  unlinkPartner: () => request<{ ok: true }>('DELETE', '/api/partner'),
-  lessons: () => request<{ lessons: Lesson[] }>('GET', '/api/lessons'),
-  createLesson: (l: LessonInput) => request<Lesson>('POST', '/api/lessons', l),
-  updateLesson: (id: number, l: Partial<LessonInput>) => request<Lesson>('PUT', `/api/lessons/${id}`, l),
-  deleteLesson: (id: number) => request<{ ok: true }>('DELETE', `/api/lessons/${id}`),
-  homeworks: () => request<{ homeworks: Homework[] }>('GET', '/api/homeworks'),
-  completeHomework: (id: number) => request<{ ok: true }>('POST', `/api/homeworks/${id}/done`),
-  deleteHomework: (id: number) => request<{ ok: true }>('DELETE', `/api/homeworks/${id}`),
+  onboarded: (done: boolean) => request<{ ok: true }>('POST', '/api/onboarded', { done }),
+  reset: (word: string) => request<SettingsView>('POST', '/api/reset', { word }),
+  shop: () => request<ShopResponse>('GET', '/api/shop'),
+  progress: () => request<ProgressResponse>('GET', '/api/progress'),
+  reading: (id: string) => request<ReadingTask>('GET', `/api/reading/${encodeURIComponent(id)}`),
+  submitReading: (body: ReadingSubmit) => request<ReadingResult>('POST', '/api/reading/submit', body),
+  vocab: () => request<VocabResponse>('GET', '/api/vocab'),
+  answerWord: (word_id: number, answer: string, hint: boolean) => request<VocabAnswerResult>('POST', '/api/vocab/answer', { word_id, answer, hint }),
+  sentences: () => request<SentenceState>('GET', '/api/sentences'),
+  submitSentence: (word_id: number, text: string) => request<SentenceResult>('POST', '/api/sentences', { word_id, text }),
+  writing: (size: TaskSize) => request<WritingState>('GET', `/api/writing?size=${size}`),
+  startWriting: (size: TaskSize) => request<WritingState>('POST', '/api/writing/start', { size }),
+  submitWriting: (size: TaskSize, text: string) => request<WritingResult>('POST', '/api/writing', { size, text }),
+  speaking: () => request<SpeakingState>('GET', '/api/speaking'),
   wallet: () => request<WalletResponse>('GET', '/api/wallet'),
   saveWallet: (w: Partial<WalletSettings>) => request<WalletResponse>('PUT', '/api/wallet', w),
-  submitReading: (body: ReadingSubmit) => request<ReadingResult>('POST', '/api/reading/submit', body),
-  submitBoss: (body: ReadingSubmit) => request<ReadingResult>('POST', '/api/boss/submit', body),
-  game: () => request<GameState>('GET', '/api/game'),
-  writing: () => request<WritingState>('GET', '/api/writing'),
-  startWriting: () => request<WritingState>('POST', '/api/writing/start'),
-  submitWriting: (text: string) => request<WritingResult>('POST', '/api/writing', { text }),
-  speaking: () => request<SpeakingState>('GET', '/api/speaking'),
-  refreshLibrary: () => request<WalletResponse>('POST', '/api/reading/refresh'),
-  analytics: () => request<AnalyticsResponse>('GET', '/api/analytics'),
   lockConfig: (key: string, profile: string) => request<WalletResponse>('POST', '/api/lock/config', { key, profile }),
   lockRemove: () => request<WalletResponse>('DELETE', '/api/lock/config'),
   unlock: (minutes: number) => request<WalletResponse>('POST', '/api/lock/unlock', { minutes }),
   lockCheck: () => request<{ ok: boolean; error?: string; blocked?: Partial<Record<string, boolean>>; state: string | null; repaired?: boolean }>('GET', '/api/lock/check'),
   lockNow: () => request<WalletResponse & { refunded: number }>('POST', '/api/lock/close'),
-  vocab: () => request<VocabResponse>('GET', '/api/vocab'),
-  answerWord: (word_id: number, answer: string, hint: boolean) => request<VocabAnswerResult>('POST', '/api/vocab/answer', { word_id, answer, hint }),
-  sentences: () => request<SentenceState>('GET', '/api/sentences'),
-  submitSentence: (word_id: number, text: string) => request<SentenceResult>('POST', '/api/sentences', { word_id, text }),
 };

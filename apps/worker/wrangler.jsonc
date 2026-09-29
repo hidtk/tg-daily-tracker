@@ -25,7 +25,7 @@
   ],
 
   "triggers": {
-    // Every 15 minutes: per-user reminders (morning / evening) and weekly summaries, in the user's timezone.
+    // Every 15 minutes: the morning message (three tasks) in the user's timezone, stale Shortcuts sessions. Every minute: NextDNS windows.
     "crons": ["*/15 * * * *", "* * * * *"]
   },
 

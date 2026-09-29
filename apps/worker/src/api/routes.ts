@@ -1,59 +1,46 @@
 import { z } from 'zod';
 import {
-  ActivityInputSchema,
   DEFAULT_SETTINGS,
-  EntriesPutSchema,
-  IsoDate,
-  LessonInputSchema,
-  MockTestInputSchema,
-  weekdayMon0,
-  SettingsPutSchema,
-  ieltsOverall,
-  monthBounds,
-  isEditable,
-  isScheduledOn,
-  todayInTz,
-  READING_TESTS,
-  readingLibrary,
-  ReadingSubmitSchema,
-  WalletSettingsPutSchema,
-  type WalletResponse,
-  VocabAnswerSchema,
-  WritingSubmitSchema,
-  SentenceSubmitSchema,
-  LockConfigSchema,
-  UnlockSchema,
   GateApp,
+  LockConfigSchema,
+  RESET_WORDS,
+  ReadingSubmitSchema,
+  ResetSchema,
+  SentenceSubmitSchema,
+  SettingsPutSchema,
+  UnlockSchema,
+  VocabAnswerSchema,
+  WalletSettingsPutSchema,
+  WritingSize,
+  WritingStartSchema,
+  WritingSubmitSchema,
+  addDays,
+  todayInTz,
   type AuthResponse,
+  type ProgressResponse,
   type SettingsView,
-  type StatsResponse,
-  type TodayResponse,
+  type WalletResponse,
 } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, userSettings, walletSettings, type UserRow } from '../lib/db';
 import { HttpError, json, readJson } from '../lib/http';
 import { issueToken, verifyToken } from '../lib/session';
 import { validateInitData } from '../lib/telegram';
-import { computeStreaks, heatmapForRange, ieltsStats } from '../lib/stats';
 import { answerWord, vocabState } from '../lib/vocab';
-import { gameState } from '../lib/game';
-import { submitReading } from '../lib/reading';
+import { readingTask, submitReading } from '../lib/reading';
 import { speakingState, startWriting, submitWriting, writingState } from '../lib/tasks';
-import { secondsLeft } from './gate';
 import { sentenceState, submitSentence } from '../lib/sentences';
-import { analytics } from '../lib/analytics';
+import { shopState } from '../lib/shop';
+import { achievementsView, taskStreak } from '../lib/wallet';
 import { configureLock, lockCheck, lockNow, lockState, removeLock, unlock } from '../lib/lock';
+import { secondsLeft } from './gate';
 
-export function settingsView(u: UserRow, env: Env, today: string): SettingsView {
-  return {
-    ...userSettings(u),
-    partner: u.partner_chat_id ? { name: u.partner_name ?? 'partner', linked: true } : null,
-    deadline_editable: u.ielts_deadline_changed_on !== today,
-    bot_username: env.BOT_USERNAME,
-  };
+export function settingsView(u: UserRow, env: Env): SettingsView {
+  return { ...userSettings(u), bot_username: env.BOT_USERNAME, onboarded: !!u.onboarded };
 }
 
 const AuthBody = z.object({ initData: z.string().min(1), tz: z.string().max(64).optional() });
+const OnboardedBody = z.object({ done: z.boolean() });
 
 function isValidTz(tz: string): boolean {
   try {
@@ -66,11 +53,7 @@ function isValidTz(tz: string): boolean {
 
 async function requireUser(req: Request, env: Env, repo: Repo): Promise<UserRow> {
   const auth = req.headers.get('authorization') ?? '';
-  // Bearer header normally; `?token=` is allowed only for GET /api/export (opened as a link from the Mini App).
-  const url = new URL(req.url);
-  const queryToken = req.method === 'GET' && url.pathname === '/api/export' ? url.searchParams.get('token') : null;
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : queryToken;
-  const tgId = await verifyToken(token, env.SESSION_SECRET);
+  const tgId = await verifyToken(auth.startsWith('Bearer ') ? auth.slice(7) : null, env.SESSION_SECRET);
   if (!tgId) throw new HttpError(401, 'Unauthorized');
   const user = await repo.getUserByTg(tgId);
   if (!user) throw new HttpError(401, 'Unknown user');
@@ -89,182 +72,58 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     if (!tgUser) throw new HttpError(401, 'Invalid initData');
     const tz = body.tz && isValidTz(body.tz) ? body.tz : DEFAULT_SETTINGS.tz;
     const { user, isNew } = await repo.ensureUser(tgUser.id, tgUser.first_name, tz);
-    const token = await issueToken(tgUser.id, env.SESSION_SECRET);
     const res: AuthResponse = {
-      token,
+      token: await issueToken(tgUser.id, env.SESSION_SECRET),
       user: { tg_id: user.tg_id, first_name: user.first_name, is_new: isNew },
-      settings: settingsView(user, env, todayInTz(user.tz)),
+      settings: settingsView(user, env),
     };
     return json(res);
   }
 
   const user = await requireUser(req, env, repo);
   const today = todayInTz(user.tz);
-  const strict = false; // strict mode retired with the IELTS-only refocus
-
-  // ---- GET /api/today?date= ----
-  if (path === '/today' && method === 'GET') {
-    const date = url.searchParams.get('date') ?? today;
-    IsoDate.parse(date);
-    const activities = await repo.listActivities(user.id);
-    const entries = await repo.entriesForDate(user.id, date);
-    const lessons = await repo.listLessons(user.id);
-    const res: TodayResponse = {
-      date,
-      today,
-      activities,
-      scheduled_ids: activities.filter((a) => isScheduledOn(a, date)).map((a) => a.id),
-      entries,
-      editable: isEditable(date, today),
-      strict_mode: strict,
-      lessons_today: lessons.filter((l) => l.weekdays.includes(weekdayMon0(date))),
-      homeworks: date === today ? await repo.openHomeworks(user.id) : [],
-      exam_date: user.ielts_exam_date,
-      target: user.ielts_target ?? 7,
-    };
-    return json(res);
-  }
-
-  // ---- PUT /api/entries ----
-  if (path === '/entries' && method === 'PUT') {
-    const { entries } = EntriesPutSchema.parse(await readJson(req));
-    const activities = await repo.listActivities(user.id, true);
-    const ids = new Set(activities.map((a) => a.id));
-    for (const e of entries) {
-      if (!ids.has(e.activity_id)) throw new HttpError(400, `Unknown activity ${e.activity_id}`);
-      if (!isEditable(e.date, today)) throw new HttpError(403, `Date ${e.date} is not editable`);
-    }
-    await repo.upsertEntries(user.id, entries);
-    return json({ ok: true, entries: await repo.entriesForDate(user.id, entries[0].date) });
-  }
-
-  // ---- /api/activities ----
-  if (path === '/activities' && method === 'GET') {
-    return json({ activities: await repo.listActivities(user.id, url.searchParams.get('archived') === '1') });
-  }
-  if (path === '/activities' && method === 'POST') {
-    const input = ActivityInputSchema.parse(await readJson(req));
-    return json(await repo.createActivity(user.id, input, today), 201);
-  }
-  const actMatch = path.match(/^\/activities\/(\d+)$/);
-  if (actMatch) {
-    const id = Number(actMatch[1]);
-    if (method === 'PUT') {
-      const input = ActivityInputSchema.partial().extend({ sort: z.number().int().optional(), archived_at: z.string().nullable().optional() }).parse(await readJson(req));
-      const a = await repo.updateActivity(user.id, id, input);
-      if (!a) throw new HttpError(404, 'Not found');
-      return json(a);
-    }
-    if (method === 'DELETE') {
-      // Soft delete = archive (history is preserved).
-      const a = await repo.updateActivity(user.id, id, { archived_at: new Date().toISOString() });
-      if (!a) throw new HttpError(404, 'Not found');
-      return json(a);
-    }
-  }
-
-  // ---- GET /api/stats?month=YYYY-MM ----
-  if (path === '/stats' && method === 'GET') {
-    const month = url.searchParams.get('month') ?? today.slice(0, 7);
-    if (!/^\d{4}-\d{2}$/.test(month)) throw new HttpError(400, 'month must be YYYY-MM');
-    const { from, to } = monthBounds(month);
-    const active = await repo.listActivities(user.id);
-    const entries = await repo.entriesBetween(user.id, from, to);
-    const res: StatsResponse = {
-      month,
-      today,
-      streaks: await computeStreaks(repo, user.id, active, today, strict),
-      days: heatmapForRange(active, entries, from, to, strict),
-    };
-    return json(res);
-  }
+  const reload = async () => Object.assign(user, await repo.getUserById(user.id));
 
   // ---- /api/settings ----
-  if (path === '/settings' && method === 'GET') return json(settingsView(user, env, today));
+  if (path === '/settings' && method === 'GET') return json(settingsView(user, env));
   if (path === '/settings' && method === 'PUT') {
-    const patch = SettingsPutSchema.parse(await readJson(req));
-    if (patch.tz && !isValidTz(patch.tz)) throw new HttpError(400, 'Invalid timezone');
-    const extra: Record<string, unknown> = {};
-    if (patch.ielts_exam_date !== undefined && patch.ielts_exam_date !== user.ielts_exam_date) {
-      // Only postponing is rate-limited: moving the date later or removing it. Setting it or moving it earlier is free.
-      const old = user.ielts_exam_date;
-      const next = patch.ielts_exam_date;
-      const postpone = old !== null && (next === null || next > old);
-      if (postpone) {
-        if (user.ielts_deadline_changed_on === today) throw new HttpError(429, 'The exam date was already moved later today — try tomorrow');
-        extra.ielts_deadline_changed_on = today;
-      }
-    }
-    await repo.updateUser(user.id, { ...patch, ...extra });
-    return json(settingsView((await repo.getUserByTg(user.tg_id))!, env, today));
+    const p = SettingsPutSchema.parse(await readJson(req));
+    if (p.tz && !isValidTz(p.tz)) throw new HttpError(400, 'Invalid timezone');
+    await repo.updateUser(user.id, { tz: p.tz, morning_time: p.morning_time, vocab_per_day: p.vocab_per_day, lang: p.lang, ielts_daily_task: p.reminders });
+    await reload();
+    return json(settingsView(user, env));
   }
 
-  // ---- DELETE /api/partner ----
-  if (path === '/partner' && method === 'DELETE') {
-    await repo.updateUser(user.id, { partner_chat_id: null, partner_name: null });
+  // ---- POST /api/onboarded ---- the first-run guide was finished or skipped
+  if (path === '/onboarded' && method === 'POST') {
+    const { done } = OnboardedBody.parse(await readJson(req));
+    await repo.updateUser(user.id, { onboarded: done });
     return json({ ok: true });
   }
 
-  // ---- /api/lessons ----
-  if (path === '/lessons' && method === 'GET') return json({ lessons: await repo.listLessons(user.id) });
-  if (path === '/lessons' && method === 'POST') {
-    const input = LessonInputSchema.parse(await readJson(req));
-    if (!isValidTz(input.tz)) throw new HttpError(400, 'Invalid timezone');
-    return json(await repo.createLesson(user.id, input), 201);
-  }
-  const lessonMatch = path.match(/^\/lessons\/(\d+)$/);
-  if (lessonMatch) {
-    const id = Number(lessonMatch[1]);
-    if (method === 'PUT') {
-      const input = LessonInputSchema.partial().parse(await readJson(req));
-      const l = await repo.updateLesson(user.id, id, input);
-      if (!l) throw new HttpError(404, 'Not found');
-      return json(l);
-    }
-    if (method === 'DELETE') {
-      await repo.deleteLesson(user.id, id);
-      return json({ ok: true });
-    }
+  // ---- POST /api/reset ---- «Начать заново»: progress goes, settings and the lock stay
+  if (path === '/reset' && method === 'POST') {
+    const { word } = ResetSchema.parse(await readJson(req));
+    if (!RESET_WORDS.includes(word.trim().toUpperCase())) throw new HttpError(400, 'Type the word exactly to confirm');
+    // A paid NextDNS window closes: the minutes behind it are gone with the rest.
+    if (user.lock_state === 'open' && user.nextdns_key) await lockNow(repo, user, false).catch(() => undefined);
+    await repo.resetProgress(user.id);
+    await reload();
+    return json(settingsView(user, env));
   }
 
-  // ---- /api/homeworks ----
-  if (path === '/homeworks' && method === 'GET') return json({ homeworks: await repo.openHomeworks(user.id) });
-  const hwMatch = path.match(/^\/homeworks\/(\d+)(\/done)?$/);
-  if (hwMatch) {
-    const id = Number(hwMatch[1]);
-    if (method === 'POST' && hwMatch[2]) {
-      await repo.completeHomework(user.id, id);
-      return json({ ok: true });
-    }
-    if (method === 'DELETE') {
-      await repo.deleteHomework(user.id, id);
-      return json({ ok: true });
-    }
+  // ---- GET /api/shop ---- every task with its price, time and difficulty; the top three now
+  if (path === '/shop' && method === 'GET') return json(await shopState(repo, user, today));
+
+  // ---- Reading ----
+  const readMatch = path.match(/^\/reading\/(r(?::|%3A)[a-z0-9:%A-F-]+)$/i);
+  if (readMatch && method === 'GET') return json(await readingTask(repo, user, today, decodeURIComponent(readMatch[1])));
+  if (path === '/reading/submit' && method === 'POST') {
+    return json(await submitReading(repo, user, today, ReadingSubmitSchema.parse(await readJson(req))));
   }
 
-  // ---- GET /api/ielts ----
-  if (path === '/ielts' && method === 'GET') {
-    return json(await ieltsStats(repo, user, await repo.listActivities(user.id), today));
-  }
-
-  // ---- /api/mocks ----
-  if (path === '/mocks' && method === 'POST') {
-    const m = MockTestInputSchema.parse(await readJson(req));
-    const overall = m.overall ?? ieltsOverall(m.listening, m.reading, m.writing, m.speaking);
-    return json(await repo.addMock(user.id, { ...m, overall }), 201);
-  }
-  const mockMatch = path.match(/^\/mocks\/(\d+)$/);
-  if (mockMatch && method === 'DELETE') {
-    await repo.deleteMock(user.id, Number(mockMatch[1]));
-    return json({ ok: true });
-  }
-
-  // ---- /api/vocab ----
-  if (path === '/vocab' && method === 'GET') {
-    return json(await vocabState(repo, user, today));
-  }
-  // The old "knew it / forgot" self-assessment is gone: words are checked only by typing.
-  if (path === '/vocab/review' && method === 'POST') throw new HttpError(410, 'Update the app: words are now checked by typing');
+  // ---- Words ----
+  if (path === '/vocab' && method === 'GET') return json(await vocabState(repo, user, today));
   if (path === '/vocab/answer' && method === 'POST') {
     const body = VocabAnswerSchema.parse(await readJson(req));
     const r = await answerWord(repo, user, body.word_id, body.answer, body.hint, today);
@@ -274,25 +133,64 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     return json(r);
   }
 
-  // ---- GET /api/game ---- level, XP, streak, quests, boss, today's minutes
-  if (path === '/game' && method === 'GET') {
-    return json(await gameState(repo, user, today));
+  // ---- Sentences ----
+  if (path === '/sentences' && method === 'GET') return json(await sentenceState(repo, user, today));
+  if (path === '/sentences' && method === 'POST') {
+    const body = SentenceSubmitSchema.parse(await readJson(req));
+    return json(await submitSentence(repo, user, today, body.word_id, body.text));
   }
 
-  // ---- /api/writing ----
-  if (path === '/writing' && method === 'GET') return json(await writingState(repo, user, today));
-  if (path === '/writing/start' && method === 'POST') return json(await startWriting(repo, user, today));
+  // ---- Writing ----
+  const ai = !!env.ANTHROPIC_API_KEY;
+  if (path === '/writing' && method === 'GET') return json(await writingState(repo, user, today, WritingSize.parse(url.searchParams.get('size') ?? 'short'), ai));
+  if (path === '/writing/start' && method === 'POST') return json(await startWriting(repo, user, today, WritingStartSchema.parse(await readJson(req)).size, ai));
   if (path === '/writing' && method === 'POST') {
     const body = WritingSubmitSchema.parse(await readJson(req));
-    return json(await submitWriting(repo, user, today, body.text));
+    return json(await submitWriting(repo, user, today, body.size, body.text, env.ANTHROPIC_API_KEY));
   }
 
-  // ---- GET /api/speaking ---- today's card (answers arrive as voice messages to the bot)
+  // ---- Speaking ---- the cards; answers arrive as voice messages to the bot
   if (path === '/speaking' && method === 'GET') return json(await speakingState(repo, user, today, env.BOT_USERNAME));
 
-  // ---- GET /api/analytics ----
-  if (path === '/analytics' && method === 'GET') {
-    return json(await analytics(repo, user, today));
+  // ---- GET /api/progress ---- achievements, the week, the streak, recent minutes
+  if (path === '/progress' && method === 'GET') {
+    const from = addDays(today, -6);
+    const [{ list, stats }, study, paid, streak, ledger] = await Promise.all([
+      achievementsView(repo, user),
+      repo.studyMinutes(user.id, '0000-00-00'),
+      repo.paidTasks(user.id),
+      taskStreak(repo, user, today),
+      repo.ledger(user.id, 30),
+    ]);
+    const earnedOn = new Map<string, number>();
+    for (const p of paid) earnedOn.set(p.date, (earnedOn.get(p.date) ?? 0) + p.s);
+    const res: ProgressResponse = {
+      today,
+      achievements: list,
+      week: Array.from({ length: 7 }, (_, i) => {
+        const date = addDays(from, i);
+        return { date, study: Math.round(study.get(date) ?? 0), earned: Math.round((earnedOn.get(date) ?? 0) * 10) / 10 };
+      }),
+      streak,
+      totals: {
+        tasks: stats.paidTasks,
+        earned: Math.round(paid.reduce((s, p) => s + p.s, 0)),
+        study_minutes: Math.round([...study.values()].reduce((s, v) => s + v, 0)),
+        words_learned: (await repo.vocabAll(user.id)).length,
+      },
+      ledger,
+    };
+    return json(res);
+  }
+
+  // ---- /api/wallet ---- the lock settings: apps, limits, the Shortcuts link
+  if (path === '/wallet' && (method === 'GET' || method === 'PUT')) {
+    if (method === 'PUT') {
+      const p = WalletSettingsPutSchema.parse(await readJson(req));
+      await repo.updateUser(user.id, { wallet_enabled: p.wallet_enabled, sm_bank_cap: p.bank_cap, sm_daily_cap: p.daily_earn_cap, sm_apps: p.apps ? JSON.stringify(p.apps) : undefined });
+      await reload();
+    }
+    return json(await walletView(repo, user, env, today));
   }
 
   // ---- /api/lock ---- DNS lock through NextDNS
@@ -300,85 +198,27 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     const body = LockConfigSchema.parse(await readJson(req));
     const r = await configureLock(repo, user, body.key.trim(), body.profile.trim().toLowerCase());
     if (!r.ok) throw new HttpError(400, r.error ?? 'NextDNS error');
-    Object.assign(user, await repo.getUserById(user.id));
+    await reload();
     return json(await walletView(repo, user, env, today));
   }
   if (path === '/lock/config' && method === 'DELETE') {
     await removeLock(repo, user);
-    Object.assign(user, await repo.getUserById(user.id));
+    await reload();
     return json(await walletView(repo, user, env, today));
   }
   if (path === '/lock/unlock' && method === 'POST') {
     const body = UnlockSchema.parse(await readJson(req));
     const r = await unlock(repo, user, body.minutes);
     if (!r.ok) throw new HttpError(r.error === 'insufficient' ? 402 : 400, r.error === 'insufficient' ? 'Not enough minutes' : r.error === 'not_configured' ? 'Lock is not set up' : r.error ?? 'NextDNS error');
-    Object.assign(user, await repo.getUserById(user.id));
+    await reload();
     return json(await walletView(repo, user, env, today));
   }
-  if (path === '/lock/check' && method === 'GET') {
-    const r = await lockCheck(repo, user);
-    return json(r);
-  }
-
+  if (path === '/lock/check' && method === 'GET') return json(await lockCheck(repo, user));
   if (path === '/lock/close' && method === 'POST') {
     const r = await lockNow(repo, user, true);
     if (!r.ok) throw new HttpError(400, r.error ?? 'NextDNS error');
-    Object.assign(user, await repo.getUserById(user.id));
+    await reload();
     return json({ ...(await walletView(repo, user, env, today)), refunded: r.refunded });
-  }
-
-  // ---- /api/sentences ----
-  if (path === '/sentences' && method === 'GET') {
-    return json(await sentenceState(repo, user, today));
-  }
-  if (path === '/sentences' && method === 'POST') {
-    const body = SentenceSubmitSchema.parse(await readJson(req));
-    return json(await submitSentence(repo, user, today, body.word_id, body.text));
-  }
-
-  // ---- /api/wallet ----
-  if (path === '/wallet' && (method === 'GET' || method === 'PUT')) {
-    if (method === 'PUT') {
-      const patch = WalletSettingsPutSchema.parse(await readJson(req));
-      await repo.updateUser(user.id, {
-        wallet_enabled: patch.wallet_enabled,
-        sm_bank_cap: patch.bank_cap,
-        sm_daily_cap: patch.daily_earn_cap,
-        sm_apps: patch.apps ? JSON.stringify(patch.apps) : undefined,
-      });
-      Object.assign(user, await repo.getUserById(user.id));
-    }
-    return json(await walletView(repo, user, env, today));
-  }
-
-  // ---- POST /api/reading/refresh ---- unlock the next batch once every visible test is done
-  if (path === '/reading/refresh' && method === 'POST') {
-    const batch = user.reading_batch ?? 1;
-    const visible = readingLibrary(batch);
-    const done = new Set(await repo.rewardedTestIds(user.id));
-    if (!visible.every((t) => done.has(t.id))) throw new HttpError(409, 'Finish the current tests first');
-    if (visible.length >= READING_TESTS.length) throw new HttpError(409, 'No more tests yet');
-    await repo.updateUser(user.id, { reading_batch: batch + 1 });
-    Object.assign(user, await repo.getUserById(user.id));
-    return json(await walletView(repo, user, env, today));
-  }
-
-  // ---- POST /api/reading/submit, /api/boss/submit ----
-  if ((path === '/reading/submit' || path === '/boss/submit') && method === 'POST') {
-    const body = ReadingSubmitSchema.parse(await readJson(req));
-    return json(await submitReading(repo, user, today, body));
-  }
-
-  // ---- GET /api/export ----
-  if (path === '/export' && method === 'GET') {
-    const data = {
-      exported_at: new Date().toISOString(),
-      user: { tg_id: user.tg_id, first_name: user.first_name },
-      settings: { ...userSettings(user), ai_key: user.ai_key ? '***' : null },
-      activities: await repo.listActivities(user.id, true),
-      entries: await repo.allEntries(user.id),
-    };
-    return json(data, 200, { 'content-disposition': `attachment; filename="tracker-export-${today}.json"` });
   }
 
   throw new HttpError(404, 'Not found');
@@ -386,9 +226,6 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
 
 async function walletView(repo: Repo, user: UserRow, env: Env, today: string): Promise<WalletResponse> {
   const w = walletSettings(user);
-  const batch = user.reading_batch ?? 1;
-  const visible = readingLibrary(batch);
-  const done = await repo.rewardedTestIds(user.id);
   const key = await repo.ensureApiKey(user);
   const earnedToday = await repo.earnedOn(user.id, today);
   const base = (env.WEBAPP_URL || '').replace(/\/+$/, '');
@@ -397,19 +234,10 @@ async function walletView(repo: Repo, user: UserRow, env: Env, today: string): P
   return {
     ...w,
     balance: Math.round(balance * 10) / 10,
-    session: open ? { app: (GateApp.safeParse(open.app).data ?? 'other'), started_at: open.started_at, seconds_left: Math.max(0, secondsLeft(balance, open, new Date())) } : null,
+    session: open ? { app: GateApp.safeParse(open.app).data ?? 'other', started_at: open.started_at, seconds_left: Math.max(0, secondsLeft(balance, open, new Date())) } : null,
     earned_today: earnedToday,
     earn_left: Math.max(0, w.daily_earn_cap - earnedToday),
-    api_key: key,
     gate_url: `${base}/gate/${key}`,
-    attempts: (await repo.attempts(user.id)).filter((a) => !a.test_id.startsWith('boss-')),
-    ledger: await repo.ledger(user.id),
-    sessions: await repo.sessions(user.id),
-    done_test_ids: done,
-    batch,
-    library: visible.map((t) => ({ id: t.id, title: t.title, topic: t.topic, minutes: t.minutes, questions: t.questions.length })),
-    total_tests: READING_TESTS.length,
-    can_refresh: visible.every((t) => done.includes(t.id)) && visible.length < READING_TESTS.length,
-    lock: lockState(user, env),
+    lock: lockState({ ...user, sm_api_key: key }, env),
   };
 }

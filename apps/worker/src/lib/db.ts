@@ -1,5 +1,5 @@
-import type { Activity, ActivityInput, DayActivity, EarnSource, Entry, Homework, Lesson, LessonInput, MockTest, Proof, ReadingAttemptView, Settings, Skill, WalletLedgerEntry, WalletSession, WalletSettings } from '@tracker/shared';
-import { DEFAULT_WALLET_SETTINGS, EMPTY_DAY, GateApp, TEMPLATE_ACTIVITIES, XP } from '@tracker/shared';
+import type { Settings, WalletLedgerEntry, WalletSettings, ShopKind } from '@tracker/shared';
+import { DEFAULT_WALLET_SETTINGS, EARN_KINDS, GateApp } from '@tracker/shared';
 
 export interface UserRow {
   id: number;
@@ -7,27 +7,10 @@ export interface UserRow {
   first_name: string;
   tz: string;
   morning_time: string;
-  evening_time: string;
-  weekly_summary: number;
-  weekly_time: string;
-  ai_endpoint: string | null;
-  ai_key: string | null;
   last_morning_sent: string | null;
-  last_evening_sent: string | null;
-  last_weekly_sent: string | null;
   created_at: string;
-  strict_mode: number;
-  partner_chat_id: number | null;
-  partner_name: string | null;
-  partner_notify_missed: number;
-  partner_code: string | null;
-  last_partner_report: string | null;
-  ielts_target: number;
-  ielts_exam_date: string | null;
-  ielts_deadline_changed_on: string | null;
-  ielts_weekly_hours: number;
+  /** reused as "morning reminders on" */
   ielts_daily_task: number;
-  last_task_sent: string | null;
   wallet_enabled: number;
   sm_balance: number;
   sm_bank_cap: number;
@@ -35,15 +18,14 @@ export interface UserRow {
   sm_apps: string | null;
   sm_api_key: string | null;
   vocab_per_day: number;
-  last_vocab_sent: string | null;
   lang: string | null;
-  reading_batch: number;
   nextdns_key: string | null;
   nextdns_profile: string | null;
   lock_state: string | null;
   lock_until: string | null;
   lock_password: string | null;
   lock_error: string | null;
+  onboarded: number;
 }
 
 export interface SessionRow {
@@ -61,6 +43,7 @@ export interface TaskRow {
   id: number;
   user_id: number;
   kind: 'writing' | 'speaking';
+  task: string | null;
   date: string;
   topic: string;
   started_at: string;
@@ -71,12 +54,8 @@ export interface TaskRow {
   vocab: string | null;
   seconds: number;
   file_unique_id: string | null;
+  feedback: string | null;
 }
-
-/** Ledger reasons that are earnings (count towards the daily cap). */
-export const EARN_REASONS: EarnSource[] = ['reading', 'words', 'sentence', 'writing', 'speaking', 'unlocked', 'quest'];
-/** Earnings from work other than Reading (paid through the daily settle). */
-export const NON_READING_REASONS: EarnSource[] = ['words', 'sentence', 'writing', 'speaking', 'unlocked'];
 
 export interface VocabRow {
   user_id: number;
@@ -89,146 +68,20 @@ export interface VocabRow {
   last_reviewed: string | null;
 }
 
-interface ActivityRow extends Omit<Activity, 'schedule_days'> {
-  user_id: number;
-  schedule_days: string | null;
-}
-
-interface EntryRow {
-  activity_id: number;
+export interface AttemptRow {
+  test_id: string;
   date: string;
-  planned: number;
-  plan_note: string | null;
-  done: number;
-  done_note: string | null;
-  minutes: number;
-  skills: string | null;
-  skipped: number;
-  skip_reason: string | null;
-  updated_at: string;
-}
-
-interface ProofRow {
-  id: number;
-  activity_id: number;
-  date: string;
-  type: 'photo' | 'chat';
-  file_id: string | null;
-  text: string | null;
-  created_at: string;
-}
-
-export interface LessonRow {
-  id: number;
-  user_id: number;
-  title: string;
-  weekdays: string;
-  time: string;
-  tz: string;
-  remind_morning: number;
-  remind_before_min: number;
-  last_morning_sent: string | null;
-  last_before_sent: string | null;
-}
-
-interface HomeworkRow {
-  id: number;
-  lesson_id: number | null;
-  text: string;
-  file_id: string | null;
-  tags: string | null;
-  due_date: string | null;
-  created_at: string;
-  done_at: string | null;
-}
-
-export function rowToLesson(r: LessonRow): Lesson {
-  return {
-    id: r.id,
-    title: r.title,
-    weekdays: JSON.parse(r.weekdays) as number[],
-    time: r.time,
-    tz: r.tz,
-    remind_morning: !!r.remind_morning,
-    remind_before_min: r.remind_before_min,
-  };
-}
-
-function rowToHomework(r: HomeworkRow): Homework {
-  return {
-    id: r.id,
-    lesson_id: r.lesson_id,
-    text: r.text,
-    has_file: !!r.file_id,
-    tags: r.tags ? (JSON.parse(r.tags) as Skill[]) : [],
-    due_date: r.due_date,
-    created_at: r.created_at,
-    done_at: r.done_at,
-  };
-}
-
-export interface PendingProof {
-  id: number;
-  user_id: number;
-  type: 'photo' | 'chat';
-  file_id: string | null;
-  text: string | null;
-  created_at: string;
-}
-
-function rowToActivity(r: ActivityRow): Activity {
-  return {
-    id: r.id,
-    name: r.name,
-    emoji: r.emoji,
-    color: r.color,
-    schedule_type: r.schedule_type,
-    schedule_days: r.schedule_days ? (JSON.parse(r.schedule_days) as number[]) : null,
-    anchor_date: r.anchor_date,
-    goal_text: r.goal_text,
-    goal_date: r.goal_date,
-    kind: r.kind ?? 'generic',
-    sort: r.sort,
-    archived_at: r.archived_at,
-  };
-}
-
-function rowToEntry(r: EntryRow, proofs: Proof[] = []): Entry {
-  return {
-    activity_id: r.activity_id,
-    date: r.date,
-    planned: !!r.planned,
-    plan_note: r.plan_note,
-    done: !!r.done,
-    done_note: r.done_note,
-    minutes: r.minutes ?? 0,
-    skills: r.skills ? (JSON.parse(r.skills) as Skill[]) : null,
-    skipped: !!r.skipped,
-    skip_reason: r.skip_reason,
-    updated_at: r.updated_at,
-    proofs,
-  };
-}
-
-function rowToProof(r: ProofRow): Proof {
-  return { id: r.id, type: r.type, text: r.text, created_at: r.created_at };
+  correct: number;
+  total: number;
+  earned: number;
+  counted: number;
 }
 
 export function userSettings(u: UserRow): Settings {
   return {
     tz: u.tz,
+    reminders: (u.ielts_daily_task ?? 1) !== 0,
     morning_time: u.morning_time,
-    evening_time: u.evening_time,
-    weekly_summary: !!u.weekly_summary,
-    weekly_time: u.weekly_time,
-    ai_endpoint: u.ai_endpoint,
-    ai_key: u.ai_key,
-    strict_mode: !!u.strict_mode,
-    partner_notify_missed: !!u.partner_notify_missed,
-    ielts_target: u.ielts_target ?? 7,
-    ielts_exam_date: u.ielts_exam_date,
-    ielts_weekly_hours: u.ielts_weekly_hours ?? 7,
-    ielts_daily_task: (u.ielts_daily_task ?? 1) !== 0,
     vocab_per_day: u.vocab_per_day ?? 5,
     lang: u.lang === 'ru' ? 'ru' : 'en',
   };
@@ -248,6 +101,18 @@ export function walletSettings(u: UserRow): WalletSettings {
   };
 }
 
+const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * Tables with a user's progress. «Начать заново» empties them; users (settings, the gate key, NextDNS, language)
+ * and the lock stay.
+ */
+export const PROGRESS_TABLES = [
+  'reading_attempts', 'wallet_ledger', 'wallet_sessions', 'vocab_progress', 'vocab_reviews', 'vocab_sentences',
+  'practice_tasks', 'achievements', 'entries', 'proofs', 'pending_proofs', 'mock_tests', 'homeworks', 'lessons',
+] as const;
+
 export class Repo {
   constructor(private db: D1Database) {}
 
@@ -261,10 +126,6 @@ export class Repo {
     return this.db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first<UserRow>();
   }
 
-  getUserByPartnerCode(code: string) {
-    return this.db.prepare('SELECT * FROM users WHERE partner_code = ?').bind(code).first<UserRow>();
-  }
-
   async ensureUser(tgId: number, firstName: string, tz: string): Promise<{ user: UserRow; isNew: boolean }> {
     const existing = await this.getUserByTg(tgId);
     if (existing) {
@@ -276,9 +137,7 @@ export class Repo {
       return { user: { ...existing, ...patch } as UserRow, isNew: false };
     }
     await this.db.prepare('INSERT INTO users (tg_id, first_name, tz) VALUES (?, ?, ?)').bind(tgId, firstName, tz).run();
-    const user = (await this.getUserByTg(tgId))!;
-    await this.createTemplateActivities(user.id, tz);
-    return { user, isNew: true };
+    return { user: (await this.getUserByTg(tgId))!, isNew: true };
   }
 
   allUsers() {
@@ -299,171 +158,26 @@ export class Repo {
     await this.db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
   }
 
-  updateSettings(userId: number, patch: Partial<Settings>) {
-    return this.updateUser(userId, patch);
+  markMorningSent(userId: number, date: string) {
+    return this.db.prepare('UPDATE users SET last_morning_sent = ? WHERE id = ?').bind(date, userId).run();
   }
 
-  markSent(userId: number, col: 'last_morning_sent' | 'last_evening_sent' | 'last_weekly_sent' | 'last_partner_report' | 'last_task_sent' | 'last_vocab_sent', date: string) {
-    return this.db.prepare(`UPDATE users SET ${col} = ? WHERE id = ?`).bind(date, userId).run();
+  /** «Начать заново»: progress, minutes and history go; settings, the gate key, NextDNS and the language stay. */
+  async resetProgress(userId: number) {
+    await this.db.batch([
+      ...PROGRESS_TABLES.map((t) => this.db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(userId)),
+      this.db.prepare('UPDATE users SET sm_balance = 0, reading_batch = 1, onboarded = 0, last_morning_sent = NULL WHERE id = ?').bind(userId),
+    ]);
   }
 
-  // ---- activities ----
+  // ---- the automatic day log ----
 
-  async listActivities(userId: number, includeArchived = false): Promise<Activity[]> {
-    const q = includeArchived
-      ? 'SELECT * FROM activities WHERE user_id = ? ORDER BY sort, id'
-      : 'SELECT * FROM activities WHERE user_id = ? AND archived_at IS NULL ORDER BY sort, id';
-    const { results } = await this.db.prepare(q).bind(userId).all<ActivityRow>();
-    return results.map(rowToActivity);
-  }
-
-  async getActivity(userId: number, id: number): Promise<Activity | null> {
-    const r = await this.db.prepare('SELECT * FROM activities WHERE user_id = ? AND id = ?').bind(userId, id).first<ActivityRow>();
-    return r ? rowToActivity(r) : null;
-  }
-
-  async createActivity(userId: number, a: ActivityInput, today: string): Promise<Activity> {
-    const max = await this.db.prepare('SELECT COALESCE(MAX(sort), -1) AS m FROM activities WHERE user_id = ?').bind(userId).first<{ m: number }>();
-    const res = await this.db
-      .prepare(
-        `INSERT INTO activities (user_id, name, emoji, color, schedule_type, schedule_days, anchor_date, goal_text, goal_date, kind, sort)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        userId,
-        a.name,
-        a.emoji,
-        a.color,
-        a.schedule_type,
-        a.schedule_type === 'weekdays' ? JSON.stringify(a.schedule_days ?? [0, 1, 2, 3, 4]) : null,
-        a.schedule_type === 'every_other_day' ? (a.anchor_date ?? today) : null,
-        a.goal_text ?? null,
-        a.goal_date ?? null,
-        a.kind ?? 'generic',
-        (max?.m ?? -1) + 1,
-      )
-      .run();
-    return (await this.getActivity(userId, Number(res.meta.last_row_id)))!;
-  }
-
-  async updateActivity(userId: number, id: number, a: Partial<ActivityInput> & { sort?: number; archived_at?: string | null }): Promise<Activity | null> {
-    const sets: string[] = [];
-    const vals: unknown[] = [];
-    const push = (k: string, v: unknown) => {
-      sets.push(`${k} = ?`);
-      vals.push(v);
-    };
-    if (a.name !== undefined) push('name', a.name);
-    if (a.emoji !== undefined) push('emoji', a.emoji);
-    if (a.color !== undefined) push('color', a.color);
-    if (a.schedule_type !== undefined) push('schedule_type', a.schedule_type);
-    if (a.schedule_days !== undefined) push('schedule_days', a.schedule_days ? JSON.stringify(a.schedule_days) : null);
-    if (a.anchor_date !== undefined) push('anchor_date', a.anchor_date);
-    if (a.goal_text !== undefined) push('goal_text', a.goal_text);
-    if (a.goal_date !== undefined) push('goal_date', a.goal_date);
-    if (a.kind !== undefined) push('kind', a.kind);
-    if (a.sort !== undefined) push('sort', a.sort);
-    if (a.archived_at !== undefined) push('archived_at', a.archived_at);
-    if (!sets.length) return this.getActivity(userId, id);
-    vals.push(userId, id);
-    await this.db.prepare(`UPDATE activities SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`).bind(...vals).run();
-    return this.getActivity(userId, id);
-  }
-
-  async createTemplateActivities(userId: number, tz: string) {
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
-    for (const t of TEMPLATE_ACTIVITIES) await this.createActivity(userId, t, today);
-  }
-
-  // ---- entries ----
-
-  private async attachProofs(userId: number, entries: EntryRow[], from: string, to: string): Promise<Entry[]> {
-    if (!entries.length) return [];
-    const { results } = await this.db
-      .prepare('SELECT * FROM proofs WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY id')
-      .bind(userId, from, to)
-      .all<ProofRow>();
-    const byKey = new Map<string, Proof[]>();
-    for (const p of results) {
-      const k = `${p.activity_id}|${p.date}`;
-      if (!byKey.has(k)) byKey.set(k, []);
-      byKey.get(k)!.push(rowToProof(p));
-    }
-    return entries.map((e) => rowToEntry(e, byKey.get(`${e.activity_id}|${e.date}`) ?? []));
-  }
-
-  async entriesForDate(userId: number, date: string): Promise<Entry[]> {
-    const { results } = await this.db.prepare('SELECT * FROM entries WHERE user_id = ? AND date = ?').bind(userId, date).all<EntryRow>();
-    return this.attachProofs(userId, results, date, date);
-  }
-
-  async entriesBetween(userId: number, from: string, to: string): Promise<Entry[]> {
-    const { results } = await this.db
-      .prepare('SELECT * FROM entries WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date')
-      .bind(userId, from, to)
-      .all<EntryRow>();
-    return this.attachProofs(userId, results, from, to);
-  }
-
-  async allEntries(userId: number): Promise<Entry[]> {
-    const { results } = await this.db.prepare('SELECT * FROM entries WHERE user_id = ? ORDER BY date').bind(userId).all<EntryRow>();
-    return this.attachProofs(userId, results, '0000-00-00', '9999-12-31');
-  }
-
-  async getEntry(userId: number, activityId: number, date: string): Promise<Entry | null> {
-    const r = await this.db
-      .prepare('SELECT * FROM entries WHERE user_id = ? AND activity_id = ? AND date = ?')
-      .bind(userId, activityId, date)
-      .first<EntryRow>();
-    if (!r) return null;
-    return (await this.attachProofs(userId, [r], date, date))[0];
-  }
-
-  async upsertEntries(userId: number, entries: Omit<Entry, 'updated_at' | 'proofs'>[]) {
-    const stmt = this.db.prepare(
-      `INSERT INTO entries (user_id, activity_id, date, planned, plan_note, done, done_note, minutes, skills, skipped, skip_reason, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-       ON CONFLICT(activity_id, date) DO UPDATE SET
-         planned = excluded.planned, plan_note = excluded.plan_note,
-         done = excluded.done, done_note = excluded.done_note,
-         minutes = excluded.minutes, skills = excluded.skills,
-         skipped = excluded.skipped, skip_reason = excluded.skip_reason,
-         updated_at = excluded.updated_at
-       WHERE entries.user_id = excluded.user_id`,
-    );
-    await this.db.batch(
-      entries.map((e) =>
-        stmt.bind(
-          userId,
-          e.activity_id,
-          e.date,
-          e.planned ? 1 : 0,
-          e.plan_note || null,
-          e.done ? 1 : 0,
-          e.done_note || null,
-          e.minutes ?? 0,
-          e.skills?.length ? JSON.stringify(e.skills) : null,
-          e.skipped ? 1 : 0,
-          e.skipped ? e.skip_reason || null : null,
-        ),
-      ),
-    );
-  }
-
-  /** Mark done (keeping other fields) — used when a proof arrives via the bot. */
-  async markDone(userId: number, activityId: number, date: string, minutes?: number) {
-    await this.db
-      .prepare(
-        `INSERT INTO entries (user_id, activity_id, date, planned, done, minutes)
-         VALUES (?, ?, ?, 0, 1, ?)
-         ON CONFLICT(activity_id, date) DO UPDATE SET
-           done = 1, skipped = 0, skip_reason = NULL,
-           minutes = CASE WHEN excluded.minutes > 0 THEN excluded.minutes ELSE entries.minutes END,
-           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE entries.user_id = excluded.user_id`,
-      )
-      .bind(userId, activityId, date, minutes ?? 0)
-      .run();
+  /** The one IELTS activity the day log is written to (created on demand). */
+  async ieltsActivityId(userId: number): Promise<number> {
+    const r = await this.db.prepare("SELECT id FROM activities WHERE user_id = ? AND kind = 'ielts' AND archived_at IS NULL ORDER BY id LIMIT 1").bind(userId).first<{ id: number }>();
+    if (r) return r.id;
+    const ins = await this.db.prepare("INSERT INTO activities (user_id, name, emoji, color, schedule_type, kind) VALUES (?, 'IELTS', '', '#1668e3', 'daily', 'ielts')").bind(userId).run();
+    return Number(ins.meta.last_row_id);
   }
 
   /** What was actually done in the app on a date (source for the automatic day log). */
@@ -496,151 +210,17 @@ export class Repo {
          VALUES (?, ?, ?, 0, 1, ?, ?)
          ON CONFLICT(activity_id, date) DO UPDATE SET
            done = 1, skipped = 0, skip_reason = NULL, minutes = excluded.minutes, skills = excluded.skills,
-           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+           updated_at = ${NOW}
          WHERE entries.user_id = excluded.user_id`,
       )
       .bind(userId, activityId, date, minutes, JSON.stringify(skills))
       .run();
   }
 
-  async setMinutes(userId: number, activityId: number, date: string, minutes: number) {
-    await this.db
-      .prepare(`UPDATE entries SET minutes = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id = ? AND activity_id = ? AND date = ?`)
-      .bind(minutes, userId, activityId, date)
-      .run();
-  }
-
-  // ---- proofs ----
-
-  async addProof(userId: number, activityId: number, date: string, p: { type: 'photo' | 'chat'; file_id?: string | null; text?: string | null }) {
-    await this.db
-      .prepare('INSERT INTO proofs (user_id, activity_id, date, type, file_id, text) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(userId, activityId, date, p.type, p.file_id ?? null, p.text ?? null)
-      .run();
-  }
-
-  getProof(userId: number, id: number) {
-    return this.db.prepare('SELECT * FROM proofs WHERE user_id = ? AND id = ?').bind(userId, id).first<ProofRow>();
-  }
-
-  async deleteProof(userId: number, id: number) {
-    await this.db.prepare('DELETE FROM proofs WHERE user_id = ? AND id = ?').bind(userId, id).run();
-  }
-
-  async addPendingProof(userId: number, p: { type: 'photo' | 'chat'; file_id?: string | null; text?: string | null }): Promise<number> {
-    const r = await this.db
-      .prepare('INSERT INTO pending_proofs (user_id, type, file_id, text) VALUES (?, ?, ?, ?)')
-      .bind(userId, p.type, p.file_id ?? null, p.text ?? null)
-      .run();
-    return Number(r.meta.last_row_id);
-  }
-
-  getPendingProof(userId: number, id: number) {
-    return this.db.prepare('SELECT * FROM pending_proofs WHERE user_id = ? AND id = ?').bind(userId, id).first<PendingProof>();
-  }
-
-  async deletePendingProof(id: number) {
-    await this.db.prepare('DELETE FROM pending_proofs WHERE id = ?').bind(id).run();
-  }
-
-  // ---- mock tests ----
-
-  async listMocks(userId: number): Promise<MockTest[]> {
-    const { results } = await this.db.prepare('SELECT * FROM mock_tests WHERE user_id = ? ORDER BY date, id').bind(userId).all<MockTest & { user_id: number }>();
-    return results.map(({ user_id: _u, ...m }) => m);
-  }
-
-  async addMock(userId: number, m: Omit<MockTest, 'id'>): Promise<MockTest> {
-    const r = await this.db
-      .prepare('INSERT INTO mock_tests (user_id, date, listening, reading, writing, speaking, overall, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(userId, m.date, m.listening, m.reading, m.writing, m.speaking, m.overall, m.note)
-      .run();
-    return { id: Number(r.meta.last_row_id), ...m };
-  }
-
-  async deleteMock(userId: number, id: number) {
-    await this.db.prepare('DELETE FROM mock_tests WHERE user_id = ? AND id = ?').bind(userId, id).run();
-  }
-
-  // ---- lessons ----
-
-  async listLessonRows(userId: number): Promise<LessonRow[]> {
-    const { results } = await this.db.prepare('SELECT * FROM lessons WHERE user_id = ? ORDER BY id').bind(userId).all<LessonRow>();
-    return results;
-  }
-
-  async listLessons(userId: number): Promise<Lesson[]> {
-    return (await this.listLessonRows(userId)).map(rowToLesson);
-  }
-
-  async allLessonRows(): Promise<LessonRow[]> {
-    const { results } = await this.db.prepare('SELECT * FROM lessons').all<LessonRow>();
-    return results;
-  }
-
-  async createLesson(userId: number, l: LessonInput): Promise<Lesson> {
-    const r = await this.db
-      .prepare('INSERT INTO lessons (user_id, title, weekdays, time, tz, remind_morning, remind_before_min) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(userId, l.title, JSON.stringify(l.weekdays), l.time, l.tz, l.remind_morning ? 1 : 0, l.remind_before_min)
-      .run();
-    return { id: Number(r.meta.last_row_id), ...l };
-  }
-
-  async updateLesson(userId: number, id: number, l: Partial<LessonInput>): Promise<Lesson | null> {
-    const sets: string[] = [];
-    const vals: unknown[] = [];
-    const push = (k: string, v: unknown) => { sets.push(`${k} = ?`); vals.push(v); };
-    if (l.title !== undefined) push('title', l.title);
-    if (l.weekdays !== undefined) push('weekdays', JSON.stringify(l.weekdays));
-    if (l.time !== undefined) push('time', l.time);
-    if (l.tz !== undefined) push('tz', l.tz);
-    if (l.remind_morning !== undefined) push('remind_morning', l.remind_morning ? 1 : 0);
-    if (l.remind_before_min !== undefined) push('remind_before_min', l.remind_before_min);
-    if (sets.length) {
-      vals.push(userId, id);
-      await this.db.prepare(`UPDATE lessons SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`).bind(...vals).run();
-    }
-    const r = await this.db.prepare('SELECT * FROM lessons WHERE user_id = ? AND id = ?').bind(userId, id).first<LessonRow>();
-    return r ? rowToLesson(r) : null;
-  }
-
-  async deleteLesson(userId: number, id: number) {
-    await this.db.prepare('DELETE FROM lessons WHERE user_id = ? AND id = ?').bind(userId, id).run();
-  }
-
-  markLessonSent(id: number, col: 'last_morning_sent' | 'last_before_sent', date: string) {
-    return this.db.prepare(`UPDATE lessons SET ${col} = ? WHERE id = ?`).bind(date, id).run();
-  }
-
-  // ---- homework ----
-
-  async openHomeworks(userId: number): Promise<Homework[]> {
-    const { results } = await this.db
-      .prepare('SELECT * FROM homeworks WHERE user_id = ? AND done_at IS NULL ORDER BY COALESCE(due_date, "9999"), id')
-      .bind(userId)
-      .all<HomeworkRow>();
-    return results.map(rowToHomework);
-  }
-
-  async addHomework(userId: number, h: { text: string; file_id?: string | null; tags: Skill[]; due_date: string | null; lesson_id: number | null }): Promise<Homework> {
-    const r = await this.db
-      .prepare('INSERT INTO homeworks (user_id, lesson_id, text, file_id, tags, due_date) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(userId, h.lesson_id, h.text, h.file_id ?? null, JSON.stringify(h.tags), h.due_date)
-      .run();
-    return { id: Number(r.meta.last_row_id), lesson_id: h.lesson_id, text: h.text, has_file: !!h.file_id, tags: h.tags, due_date: h.due_date, created_at: new Date().toISOString(), done_at: null };
-  }
-
-  async getHomework(userId: number, id: number): Promise<(Homework & { file_id: string | null }) | null> {
-    const r = await this.db.prepare('SELECT * FROM homeworks WHERE user_id = ? AND id = ?').bind(userId, id).first<HomeworkRow>();
-    return r ? { ...rowToHomework(r), file_id: r.file_id } : null;
-  }
-
-  async completeHomework(userId: number, id: number) {
-    await this.db.prepare(`UPDATE homeworks SET done_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id = ? AND id = ? AND done_at IS NULL`).bind(userId, id).run();
-  }
-
-  async deleteHomework(userId: number, id: number) {
-    await this.db.prepare('DELETE FROM homeworks WHERE user_id = ? AND id = ?').bind(userId, id).run();
+  /** Study minutes per day from the automatic log. */
+  async studyMinutes(userId: number, from: string): Promise<Map<string, number>> {
+    const { results } = await this.db.prepare('SELECT date, SUM(minutes) AS m FROM entries WHERE user_id = ? AND date >= ? AND done = 1 GROUP BY date').bind(userId, from).all<{ date: string; m: number }>();
+    return new Map(results.map((r) => [r.date, r.m ?? 0]));
   }
 
   // ---- wallet ----
@@ -673,52 +253,17 @@ export class Repo {
       .bind(delta, cap, userId)
       .run();
     if (delta !== 0) {
-      await this.db
-        .prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)')
-        .bind(userId, date, delta, reason, note)
-        .run();
+      await this.db.prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)').bind(userId, date, delta, reason, note).run();
     }
     return this.balance(userId);
-  }
-
-  async chestTaken(userId: number, date: string): Promise<boolean> {
-    return !!(await this.db.prepare("SELECT 1 AS x FROM wallet_ledger WHERE user_id = ? AND date = ? AND reason = 'quest'").bind(userId, date).first());
-  }
-
-  /** The daily chest: always leaves a ledger row (even worth 0 when a cap was hit), so it opens once a day. */
-  async openChest(userId: number, date: string, minutes: number, cap: number) {
-    if (minutes > 0) {
-      await this.db
-        .prepare('UPDATE users SET sm_balance = CASE WHEN ?1 > 0 THEN MIN(MAX(?2, sm_balance), sm_balance + ?1) ELSE sm_balance END WHERE id = ?3')
-        .bind(minutes, cap, userId)
-        .run();
-    }
-    await this.db.prepare("INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, 'quest', 'chest')").bind(userId, date, minutes).run();
   }
 
   /** Atomically spend minutes if the balance covers them. Returns false (and writes nothing) otherwise. */
   async trySpend(userId: number, date: string, minutes: number, note: string): Promise<boolean> {
     const r = await this.db.prepare('UPDATE users SET sm_balance = sm_balance - ?1 WHERE id = ?2 AND sm_balance >= ?1').bind(minutes, userId).run();
     if ((r.meta.changes ?? 0) === 0) return false;
-    await this.db
-      .prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)')
-      .bind(userId, date, -minutes, 'spend', note)
-      .run();
+    await this.db.prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)').bind(userId, date, -minutes, 'spend', note).run();
     return true;
-  }
-
-  /** Minutes earned today from every kind of work (refunds are not earnings) — the daily cap applies to this. */
-  async earnedOn(userId: number, date: string): Promise<number> {
-    const by = await this.earnedBySource(userId, date);
-    return Math.round(Object.values(by).reduce((s, v) => s + (v ?? 0), 0) * 10) / 10;
-  }
-
-  async earnedBySource(userId: number, date: string): Promise<Partial<Record<EarnSource, number>>> {
-    const { results } = await this.db
-      .prepare(`SELECT reason, SUM(delta) AS s FROM wallet_ledger WHERE user_id = ? AND date = ? AND delta > 0 AND reason IN (${EARN_REASONS.map(() => '?').join(', ')}) GROUP BY reason`)
-      .bind(userId, date, ...EARN_REASONS)
-      .all<{ reason: EarnSource; s: number }>();
-    return Object.fromEntries(results.map((r) => [r.reason, Math.round(r.s * 10) / 10]));
   }
 
   /**
@@ -732,110 +277,48 @@ export class Repo {
     return this.balance(userId);
   }
 
-  /** Tests already taken at least once. Any attempt counts: the answers were shown, so a retake never pays. */
-  async rewardedTestIds(userId: number): Promise<string[]> {
+  /** Minutes earned on a date by task kind (achievement bonuses and refunds are not earnings). */
+  async earnedByKind(userId: number, date: string): Promise<Partial<Record<ShopKind, number>>> {
     const { results } = await this.db
-      .prepare('SELECT DISTINCT test_id FROM reading_attempts WHERE user_id = ?')
-      .bind(userId)
-      .all<{ test_id: string }>();
-    return results.map((r) => r.test_id);
+      .prepare(`SELECT reason, SUM(delta) AS s FROM wallet_ledger WHERE user_id = ? AND date = ? AND delta > 0 AND reason IN (${EARN_KINDS.map(() => '?').join(', ')}) GROUP BY reason`)
+      .bind(userId, date, ...EARN_KINDS)
+      .all<{ reason: ShopKind; s: number }>();
+    return Object.fromEntries(results.map((r) => [r.reason, round1(r.s)]));
   }
 
-  async addAttempt(userId: number, a: Omit<ReadingAttemptView, 'id' | 'first'> & { counted: boolean }): Promise<number> {
-    const r = await this.db
-      .prepare('INSERT INTO reading_attempts (user_id, test_id, date, correct, total, band, seconds, earned, counted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(userId, a.test_id, a.date, a.correct, a.total, a.band, a.seconds, a.earned, a.counted ? 1 : 0)
-      .run();
-    return Number(r.meta.last_row_id);
+  /** Minutes earned today from tasks — the daily limit applies to this. */
+  async earnedOn(userId: number, date: string): Promise<number> {
+    const by = await this.earnedByKind(userId, date);
+    return round1(Object.values(by).reduce((s, v) => s + (v ?? 0), 0));
   }
 
-  /** Boss attempts, oldest first. */
-  async bossAttempts(userId: number) {
+  /** Earned per task id (the ledger note) on a date. */
+  async earnedByTask(userId: number, date: string): Promise<Map<string, number>> {
     const { results } = await this.db
-      .prepare("SELECT test_id, date, band, correct FROM reading_attempts WHERE user_id = ? AND test_id LIKE 'boss-%' ORDER BY id")
-      .bind(userId)
-      .all<{ test_id: string; date: string; band: number; correct: number }>();
+      .prepare(`SELECT note, SUM(delta) AS s FROM wallet_ledger WHERE user_id = ? AND date = ? AND delta > 0 AND reason IN (${EARN_KINDS.map(() => '?').join(', ')}) GROUP BY note`)
+      .bind(userId, date, ...EARN_KINDS)
+      .all<{ note: string; s: number }>();
+    return new Map(results.map((r) => [r.note, round1(r.s)]));
+  }
+
+  /** Every paid task: date and kind — the source for achievements and the streak. */
+  async paidTasks(userId: number): Promise<{ date: string; reason: ShopKind; n: number; s: number }[]> {
+    const { results } = await this.db
+      .prepare(`SELECT date, reason, COUNT(*) AS n, SUM(delta) AS s FROM wallet_ledger WHERE user_id = ? AND delta > 0 AND reason IN (${EARN_KINDS.map(() => '?').join(', ')}) GROUP BY date, reason ORDER BY date`)
+      .bind(userId, ...EARN_KINDS)
+      .all<{ date: string; reason: ShopKind; n: number; s: number }>();
     return results;
   }
 
-  /** Per-day counts for XP, quests and the streak — the whole history, grouped by date. */
-  async gameDays(userId: number, onlyDate: string | null = null): Promise<DayActivity[]> {
-    const f = 'user_id = ?1 AND (?2 IS NULL OR date = ?2)';
-    const [r, v, s, t] = await this.db.batch([
-      this.db.prepare(`SELECT date, SUM(counted) AS n, SUM(CASE WHEN counted = 1 THEN ${XP.readingBase} + ${XP.readingPerCorrect} * correct ELSE 0 END) AS xp FROM reading_attempts WHERE ${f} GROUP BY date`).bind(userId, onlyDate),
-      this.db.prepare(`SELECT date, SUM(CASE WHEN ok = 1 AND hint = 0 THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN ok = 1 AND hint = 1 THEN 1 ELSE 0 END) AS hint, SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS wrong FROM vocab_reviews WHERE ${f} AND kind <> 'self' GROUP BY date`).bind(userId, onlyDate),
-      this.db.prepare(`SELECT date, COUNT(*) AS n FROM vocab_sentences WHERE ${f} GROUP BY date`).bind(userId, onlyDate),
-      this.db.prepare(`SELECT date, SUM(CASE WHEN kind = 'writing' THEN 1 ELSE 0 END) AS w, SUM(CASE WHEN kind = 'speaking' THEN 1 ELSE 0 END) AS s FROM practice_tasks WHERE ${f} AND status = 'accepted' GROUP BY date`).bind(userId, onlyDate),
-    ]);
-    const days = new Map<string, DayActivity>();
-    const day = (date: string) => {
-      let d = days.get(date);
-      if (!d) days.set(date, (d = { date, ...EMPTY_DAY }));
-      return d;
-    };
-    for (const x of (r.results ?? []) as { date: string; n: number; xp: number }[]) Object.assign(day(x.date), { readingCounted: x.n ?? 0, readingXp: x.xp ?? 0 });
-    for (const x of (v.results ?? []) as { date: string; ok: number; hint: number; wrong: number }[]) Object.assign(day(x.date), { wordsOk: x.ok ?? 0, wordsHint: x.hint ?? 0, wordsWrong: x.wrong ?? 0 });
-    for (const x of (s.results ?? []) as { date: string; n: number }[]) day(x.date).sentences = x.n ?? 0;
-    for (const x of (t.results ?? []) as { date: string; w: number; s: number }[]) Object.assign(day(x.date), { writings: x.w ?? 0, voices: x.s ?? 0 });
-    return [...days.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
-  }
-
-  // ---- writing & speaking tasks ----
-
-  tasksOn(userId: number, date: string, kind: 'writing' | 'speaking') {
-    return this.db
-      .prepare('SELECT * FROM practice_tasks WHERE user_id = ? AND date = ? AND kind = ? ORDER BY id')
-      .bind(userId, date, kind)
-      .all<TaskRow>()
-      .then((r) => r.results);
-  }
-
-  async startTask(userId: number, date: string, kind: 'writing' | 'speaking', topic: string): Promise<TaskRow> {
-    const r = await this.db.prepare('INSERT INTO practice_tasks (user_id, kind, date, topic) VALUES (?, ?, ?, ?)').bind(userId, kind, date, topic).run();
-    return (await this.db.prepare('SELECT * FROM practice_tasks WHERE id = ?').bind(Number(r.meta.last_row_id)).first<TaskRow>())!;
-  }
-
-  /** Accept a started task once (a parallel submit can't accept it twice). */
-  async acceptWriting(id: number, text: string, words: number, vocab: string[], seconds: number): Promise<boolean> {
-    const r = await this.db
-      .prepare(`UPDATE practice_tasks SET status = 'accepted', submitted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), text = ?, words = ?, vocab = ?, seconds = ? WHERE id = ? AND status = 'started'`)
-      .bind(text, words, JSON.stringify(vocab), seconds, id)
-      .run();
-    return (r.meta.changes ?? 0) > 0;
-  }
-
-  /** Record an accepted voice answer; false if this exact voice was already counted. */
-  async addVoice(userId: number, date: string, card: string, seconds: number, fileUniqueId: string): Promise<boolean> {
-    const r = await this.db
-      .prepare(`INSERT OR IGNORE INTO practice_tasks (user_id, kind, date, topic, status, submitted_at, seconds, file_unique_id) VALUES (?, 'speaking', ?, ?, 'accepted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, ?)`)
-      .bind(userId, date, card, seconds, fileUniqueId)
-      .run();
-    return (r.meta.changes ?? 0) > 0;
-  }
-
-  async recentWritings(userId: number, limit = 30): Promise<string[]> {
+  async ledger(userId: number, limit = 30): Promise<WalletLedgerEntry[]> {
     const { results } = await this.db
-      .prepare("SELECT text FROM practice_tasks WHERE user_id = ? AND kind = 'writing' AND status = 'accepted' ORDER BY id DESC LIMIT ?")
-      .bind(userId, limit)
-      .all<{ text: string }>();
-    return results.map((r) => r.text);
-  }
-
-  async attempts(userId: number, limit = 30): Promise<ReadingAttemptView[]> {
-    const { results } = await this.db
-      .prepare('SELECT * FROM reading_attempts WHERE user_id = ? ORDER BY id DESC LIMIT ?')
-      .bind(userId, limit)
-      .all<{ id: number; test_id: string; date: string; correct: number; total: number; band: number; seconds: number; earned: number }>();
-    return results.map((r) => ({ ...r, first: r.earned > 0 }));
-  }
-
-  async ledger(userId: number, limit = 40): Promise<WalletLedgerEntry[]> {
-    const { results } = await this.db
-      .prepare('SELECT id, at, delta, reason, note FROM wallet_ledger WHERE user_id = ? AND delta <> 0 ORDER BY id DESC LIMIT ?')
+      .prepare('SELECT id, at, date, delta, reason, note FROM wallet_ledger WHERE user_id = ? AND delta <> 0 ORDER BY id DESC LIMIT ?')
       .bind(userId, limit)
       .all<WalletLedgerEntry>();
     return results;
   }
+
+  // ---- Shortcuts sessions ----
 
   openSession(userId: number) {
     return this.db.prepare('SELECT * FROM wallet_sessions WHERE user_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1').bind(userId).first<SessionRow>();
@@ -851,32 +334,18 @@ export class Repo {
 
   /** Heartbeat from the Shortcuts timer loop. */
   async touchSession(id: number) {
-    await this.db.prepare(`UPDATE wallet_sessions SET last_seen = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND ended_at IS NULL`).bind(id).run();
+    await this.db.prepare(`UPDATE wallet_sessions SET last_seen = ${NOW} WHERE id = ? AND ended_at IS NULL`).bind(id).run();
   }
 
   async startSession(userId: number, app: string): Promise<number> {
-    const r = await this.db
-      .prepare(`INSERT INTO wallet_sessions (user_id, app, started_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
-      .bind(userId, app)
-      .run();
+    const r = await this.db.prepare(`INSERT INTO wallet_sessions (user_id, app, started_at) VALUES (?, ?, ${NOW})`).bind(userId, app).run();
     return Number(r.meta.last_row_id);
   }
 
   /** Close a session once. Returns false if it was already closed (a concurrent request got there first). */
   async endSession(id: number, minutes: number, closedBy: string): Promise<boolean> {
-    const r = await this.db
-      .prepare(`UPDATE wallet_sessions SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), minutes = ?, closed_by = ? WHERE id = ? AND ended_at IS NULL`)
-      .bind(minutes, closedBy, id)
-      .run();
+    const r = await this.db.prepare(`UPDATE wallet_sessions SET ended_at = ${NOW}, minutes = ?, closed_by = ? WHERE id = ? AND ended_at IS NULL`).bind(minutes, closedBy, id).run();
     return (r.meta.changes ?? 0) > 0;
-  }
-
-  async sessions(userId: number, limit = 20): Promise<WalletSession[]> {
-    const { results } = await this.db
-      .prepare('SELECT id, app, started_at, ended_at, minutes FROM wallet_sessions WHERE user_id = ? ORDER BY id DESC LIMIT ?')
-      .bind(userId, limit)
-      .all<{ id: number; app: string; started_at: string; ended_at: string | null; minutes: number }>();
-    return results.map((r) => ({ ...r, app: (r.app as WalletSession['app']) }));
   }
 
   /** Sessions left open by a missed close event (no close and no heartbeat for a while), across all users. */
@@ -888,6 +357,98 @@ export class Repo {
     return results;
   }
 
+  async openLocks(nowIso: string): Promise<UserRow[]> {
+    const { results } = await this.db.prepare("SELECT * FROM users WHERE lock_state = 'open' AND lock_until IS NOT NULL AND lock_until <= ?").bind(nowIso).all<UserRow>();
+    return results;
+  }
+
+  // ---- Reading ----
+
+  /** Attempts at shop Reading parts (ids r:<test>:<part>), oldest first. */
+  async readingAttempts(userId: number): Promise<AttemptRow[]> {
+    const { results } = await this.db
+      .prepare("SELECT test_id, date, correct, total, earned, counted FROM reading_attempts WHERE user_id = ? AND test_id LIKE 'r:%' ORDER BY id")
+      .bind(userId)
+      .all<AttemptRow>();
+    return results;
+  }
+
+  async addAttempt(userId: number, a: { test_id: string; date: string; correct: number; total: number; band: number; seconds: number; earned: number; counted: boolean }): Promise<number> {
+    const r = await this.db
+      .prepare('INSERT INTO reading_attempts (user_id, test_id, date, correct, total, band, seconds, earned, counted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(userId, a.test_id, a.date, a.correct, a.total, a.band, a.seconds, a.earned, a.counted ? 1 : 0)
+      .run();
+    return Number(r.meta.last_row_id);
+  }
+
+  async setAttemptEarned(id: number, earned: number) {
+    await this.db.prepare('UPDATE reading_attempts SET earned = ? WHERE id = ?').bind(earned, id).run();
+  }
+
+  // ---- achievements ----
+
+  async achievementRows(userId: number): Promise<{ id: string; date: string }[]> {
+    const { results } = await this.db.prepare('SELECT id, date FROM achievements WHERE user_id = ?').bind(userId).all<{ id: string; date: string }>();
+    return results;
+  }
+
+  /** Record an achievement once. False if it was already there (a parallel request got it). */
+  async addAchievement(userId: number, id: string, date: string, bonus: number): Promise<boolean> {
+    const r = await this.db.prepare('INSERT OR IGNORE INTO achievements (user_id, id, date, bonus) VALUES (?, ?, ?, ?)').bind(userId, id, date, bonus).run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  /** Counts for achievements that are not in the ledger: words right, sentences, Writing and Speaking. */
+  async practiceCounts(userId: number) {
+    const [w, s, t] = await this.db.batch([
+      this.db.prepare("SELECT COUNT(*) AS n FROM vocab_reviews WHERE user_id = ? AND ok = 1 AND hint = 0 AND kind <> 'self'").bind(userId),
+      this.db.prepare('SELECT COUNT(*) AS n FROM vocab_sentences WHERE user_id = ?').bind(userId),
+      this.db.prepare("SELECT SUM(CASE WHEN kind = 'writing' THEN 1 ELSE 0 END) AS w, SUM(CASE WHEN kind = 'speaking' THEN 1 ELSE 0 END) AS s FROM practice_tasks WHERE user_id = ? AND status = 'accepted'").bind(userId),
+    ]);
+    const first = (x: D1Result) => (x.results?.[0] ?? {}) as { n?: number; w?: number; s?: number };
+    return { wordsRight: first(w).n ?? 0, sentences: first(s).n ?? 0, writings: first(t).w ?? 0, speakings: first(t).s ?? 0 };
+  }
+
+  // ---- Writing and Speaking ----
+
+  tasksOn(userId: number, date: string, kind: 'writing' | 'speaking') {
+    return this.db.prepare('SELECT * FROM practice_tasks WHERE user_id = ? AND date = ? AND kind = ? ORDER BY id').bind(userId, date, kind).all<TaskRow>().then((r) => r.results);
+  }
+
+  async startTask(userId: number, date: string, kind: 'writing' | 'speaking', task: string, topic: string) {
+    await this.db.prepare('INSERT INTO practice_tasks (user_id, kind, task, date, topic) VALUES (?, ?, ?, ?, ?)').bind(userId, kind, task, date, topic).run();
+  }
+
+  /** Accept a started Writing once (a parallel submit can't accept it twice). */
+  async acceptWriting(id: number, text: string, words: number, vocab: string[], seconds: number, feedback: unknown): Promise<boolean> {
+    const r = await this.db
+      .prepare(`UPDATE practice_tasks SET status = 'accepted', submitted_at = ${NOW}, text = ?, words = ?, vocab = ?, seconds = ?, feedback = ? WHERE id = ? AND status = 'started'`)
+      .bind(text, words, JSON.stringify(vocab), seconds, JSON.stringify(feedback), id)
+      .run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  /** Record an accepted voice answer; false if this exact voice was already counted. */
+  async addVoice(userId: number, date: string, task: string, card: string, seconds: number, fileUniqueId: string, feedback: unknown): Promise<boolean> {
+    const r = await this.db
+      .prepare(`INSERT OR IGNORE INTO practice_tasks (user_id, kind, task, date, topic, status, submitted_at, seconds, file_unique_id, feedback) VALUES (?, 'speaking', ?, ?, ?, 'accepted', ${NOW}, ?, ?, ?)`)
+      .bind(userId, task, date, card, seconds, fileUniqueId, JSON.stringify(feedback))
+      .run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  async voiceSeen(userId: number, fileUniqueId: string): Promise<boolean> {
+    return !!(await this.db.prepare('SELECT 1 AS x FROM practice_tasks WHERE user_id = ? AND file_unique_id = ?').bind(userId, fileUniqueId).first());
+  }
+
+  async recentWritings(userId: number, limit = 30): Promise<string[]> {
+    const { results } = await this.db
+      .prepare("SELECT text FROM practice_tasks WHERE user_id = ? AND kind = 'writing' AND status = 'accepted' ORDER BY id DESC LIMIT ?")
+      .bind(userId, limit)
+      .all<{ text: string }>();
+    return results.map((r) => r.text);
+  }
+
   // ---- vocabulary ----
 
   async vocabAll(userId: number): Promise<VocabRow[]> {
@@ -895,19 +456,8 @@ export class Repo {
     return results;
   }
 
-  async vocabDue(userId: number, today: string): Promise<VocabRow[]> {
-    const { results } = await this.db
-      .prepare('SELECT * FROM vocab_progress WHERE user_id = ? AND next_review <= ? AND introduced_on < ? ORDER BY next_review, word_id')
-      .bind(userId, today, today)
-      .all<VocabRow>();
-    return results;
-  }
-
   async vocabIntroducedOn(userId: number, date: string): Promise<VocabRow[]> {
-    const { results } = await this.db
-      .prepare('SELECT * FROM vocab_progress WHERE user_id = ? AND introduced_on = ? ORDER BY word_id')
-      .bind(userId, date)
-      .all<VocabRow>();
+    const { results } = await this.db.prepare('SELECT * FROM vocab_progress WHERE user_id = ? AND introduced_on = ? ORDER BY word_id').bind(userId, date).all<VocabRow>();
     return results;
   }
 
@@ -919,10 +469,7 @@ export class Repo {
     const rows: VocabRow[] = [];
     const next = addDaysIso(date, 1);
     for (let id = start; id < start + n && id <= total; id++) {
-      await this.db
-        .prepare('INSERT OR IGNORE INTO vocab_progress (user_id, word_id, stage, introduced_on, next_review) VALUES (?, ?, 0, ?, ?)')
-        .bind(userId, id, date, next)
-        .run();
+      await this.db.prepare('INSERT OR IGNORE INTO vocab_progress (user_id, word_id, stage, introduced_on, next_review) VALUES (?, ?, 0, ?, ?)').bind(userId, id, date, next).run();
       rows.push({ user_id: userId, word_id: id, stage: 0, introduced_on: date, next_review: next, reviews: 0, lapses: 0, last_reviewed: null });
     }
     return rows;
@@ -952,14 +499,6 @@ export class Repo {
     return true;
   }
 
-  async vocabHistory(userId: number, from: string): Promise<{ date: string; reviews: number; correct: number }[]> {
-    const { results } = await this.db
-      .prepare('SELECT date, COUNT(*) AS reviews, SUM(ok) AS correct FROM vocab_reviews WHERE user_id = ? AND date >= ? GROUP BY date ORDER BY date')
-      .bind(userId, from)
-      .all<{ date: string; reviews: number; correct: number }>();
-    return results;
-  }
-
   // ---- sentences ----
 
   async sentencesOn(userId: number, date: string): Promise<number> {
@@ -968,8 +507,7 @@ export class Repo {
   }
 
   async sentenceExists(userId: number, wordId: number, date: string): Promise<boolean> {
-    const r = await this.db.prepare('SELECT 1 AS x FROM vocab_sentences WHERE user_id = ? AND word_id = ? AND date = ?').bind(userId, wordId, date).first();
-    return !!r;
+    return !!(await this.db.prepare('SELECT 1 AS x FROM vocab_sentences WHERE user_id = ? AND word_id = ? AND date = ?').bind(userId, wordId, date).first());
   }
 
   async addSentence(userId: number, wordId: number, date: string, text: string) {
@@ -982,34 +520,15 @@ export class Repo {
     return new Map(results.map((r) => [r.word_id, r.d]));
   }
 
-  async recentSentences(userId: number, limit = 10): Promise<{ word_id: number; text: string; date: string }[]> {
-    const { results } = await this.db.prepare('SELECT word_id, text, date FROM vocab_sentences WHERE user_id = ? ORDER BY id DESC LIMIT ?').bind(userId, limit).all<{ word_id: number; text: string; date: string }>();
-    return results;
-  }
-
-  async openLocks(nowIso: string): Promise<UserRow[]> {
-    const { results } = await this.db.prepare("SELECT * FROM users WHERE lock_state = 'open' AND lock_until IS NOT NULL AND lock_until <= ?").bind(nowIso).all<UserRow>();
-    return results;
-  }
-
-  async allAttemptsSince(userId: number, from: string) {
-    const { results } = await this.db
-      .prepare('SELECT test_id, date, band, correct, total, earned FROM reading_attempts WHERE user_id = ? AND date >= ? ORDER BY id')
-      .bind(userId, from)
-      .all<{ test_id: string; date: string; band: number; correct: number; total: number; earned: number }>();
-    return results;
-  }
-
-  async sentencesHistory(userId: number, from: string): Promise<{ date: string; n: number }[]> {
-    const { results } = await this.db.prepare('SELECT date, COUNT(*) AS n FROM vocab_sentences WHERE user_id = ? AND date >= ? GROUP BY date ORDER BY date').bind(userId, from).all<{ date: string; n: number }>();
-    return results;
+  async recentSentenceTexts(userId: number, limit = 50): Promise<string[]> {
+    const { results } = await this.db.prepare('SELECT text FROM vocab_sentences WHERE user_id = ? ORDER BY id DESC LIMIT ?').bind(userId, limit).all<{ text: string }>();
+    return results.map((r) => r.text);
   }
 }
 
 function addDaysIso(iso: string, n: number): string {
   const [y, m, d] = iso.split('-').map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d + n));
-  return t.toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
 function randomKey(): string {

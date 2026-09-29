@@ -1,367 +1,105 @@
 import { useEffect, useState } from 'react';
-import type { AnalyticsResponse, IeltsResponse, MockTest, Skill, StatsResponse, WeekStat } from '@tracker/shared';
-import { SKILLS, SKILL_LABEL, ieltsOverall, todayInTz, weekdayMon0 } from '@tracker/shared';
+import type { ProgressResponse, WalletLedgerEntry } from '@tracker/shared';
 import { api, ApiError } from '../api';
-import { deviceTz, haptic } from '../tg';
-import { useToast } from '../components/Toast';
-import { Field, MONTHS, Section, Sheet, WD, confirmDialog, fmtShort } from '../components/ui';
 import { useLang, useT } from '../i18n';
+import { Section, fmtShort, WD } from '../components/ui';
+import { Icon } from '../components/Mascot';
+import { ACHIEVEMENT_TEXT } from '../components/Reward';
+import { weekdayMon0 } from '@tracker/shared';
 
-const SKILL_COLOR: Record<Skill, string> = { listening: 'var(--c5)', reading: 'var(--c2)', writing: 'var(--c1)', speaking: 'var(--c3)', vocab: 'var(--c4)', grammar: 'var(--c6)' };
-const BAND_SERIES = ['overall', 'listening', 'reading', 'writing', 'speaking'] as const;
-type BandSeries = (typeof BAND_SERIES)[number];
+const REASON: Record<string, string> = {
+  reading: 'Reading',
+  words: 'Words',
+  sentence: 'Sentence',
+  writing: 'Writing',
+  speaking: 'Speaking',
+  achievement: 'Achievement',
+  spend: 'Social media',
+  manual: 'Returned',
+};
 
-function shiftMonth(month: string, n: number): string {
-  const [y, m] = month.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + n, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+function ledgerLabel(l: WalletLedgerEntry, t: ReturnType<typeof useT>): string {
+  if (l.reason === 'achievement' && l.note && l.note in ACHIEVEMENT_TEXT) return `${t('Achievement')}: ${t(ACHIEVEMENT_TEXT[l.note as keyof typeof ACHIEVEMENT_TEXT].title)}`;
+  return t(REASON[l.reason] ?? l.reason);
 }
 
-function level(done: number, scheduled: number): string {
-  if (!done) return '';
-  if (!scheduled) return 'l2';
-  const r = done / scheduled;
-  return r >= 1 ? 'l4' : r >= 0.66 ? 'l3' : r >= 0.34 ? 'l2' : 'l1';
-}
-
+/** Progress: achievements with plain rules and progress, the week, the streak, where the minutes came from. */
 export function Progress() {
   const t = useT();
   const { lang } = useLang();
-  const [data, setData] = useState<IeltsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [addMock, setAddMock] = useState(false);
-  const [month, setMonth] = useState(todayInTz(deviceTz()).slice(0, 7));
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [an, setAn] = useState<AnalyticsResponse | null>(null);
+  const [p, setP] = useState<ProgressResponse | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    void api.analytics().then(setAn).catch(() => undefined);
+    api.progress().then(setP).catch((e: unknown) => setErr(e instanceof ApiError ? e.message : t('Could not load')));
   }, []);
 
-  const load = () => api.ielts().then(setData).catch((e: unknown) => setError(e instanceof ApiError ? e.message : t('Could not load')));
-  useEffect(() => {
-    void load();
-  }, []);
-  useEffect(() => {
-    setStats(null);
-    void api.stats(month).then(setStats);
-  }, [month]);
+  if (err) return <div className="screen"><div className="err">{err}</div></div>;
+  if (!p) return <span className="spinner" />;
 
-  if (error) return <div className="screen"><div className="err">{error}</div></div>;
-  if (!data) return <span className="spinner" />;
-
-  const today = stats?.today ?? todayInTz(deviceTz());
-  const thisWeek = data.weeks[data.weeks.length - 1];
-  const hoursThisWeek = thisWeek.minutes_total / 60;
-  const lastMock = data.mocks[data.mocks.length - 1];
-  const [y, m] = month.split('-').map(Number);
-  const lead = weekdayMon0(`${month}-01`);
-  const streak = stats?.streaks[0];
+  const max = Math.max(10, ...p.week.map((d) => Math.max(d.study, d.earned)));
+  const earned = p.achievements.filter((a) => a.earned_on).length;
 
   return (
     <div className="screen">
       <h1>{t('Progress')}</h1>
 
-      <div className="tiles">
-        <div className="tile">
-          <div className="v">{data.days_left != null ? (data.days_left >= 0 ? data.days_left : '—') : '—'}</div>
-          <div className="l">{data.exam_date ? `${t('days to the exam')} · ${fmtShort(data.exam_date, lang)}` : t('exam date not set')}</div>
-        </div>
-        <div className="tile">
-          <div className="v">{lastMock?.overall != null ? lastMock.overall.toFixed(1) : '—'}<span className="muted" style={{ fontSize: 18 }}> / {data.target.toFixed(1)}</span></div>
-          <div className="l">{lastMock ? t('last mock · target') : t('no mock tests yet')}</div>
-        </div>
-        <div className="tile">
-          <div className="v">{hoursThisWeek.toFixed(1)}<span className="muted" style={{ fontSize: 18 }}> / {data.weekly_hours} h</span></div>
-          <div className="l">{t('this week')}</div>
-        </div>
-        <div className="tile">
-          <div className="v">{streak?.current ?? data.streak?.current ?? 0}</div>
-          <div className="l">{t('day streak · best {b} · {d}% over 4 weeks', { b: streak?.best ?? data.streak?.best ?? 0, d: data.discipline })}</div>
-        </div>
+      <div className="tiles section">
+        <div className="tile"><div className="v">{p.streak.current}</div><div className="l">{t('days in a row with tasks · best {n}', { n: p.streak.best })}</div></div>
+        <div className="tile"><div className="v">{p.totals.tasks}</div><div className="l">{t('tasks with minutes')}</div></div>
+        <div className="tile"><div className="v">{p.totals.earned}</div><div className="l">{t('minutes earned')}</div></div>
+        <div className="tile"><div className="v">{Math.round(p.totals.study_minutes / 6) / 10}</div><div className="l">{t('hours of study (counted by itself)')}</div></div>
       </div>
 
-      <Section label={t('Calendar')}>
-        <div className="row between cal-nav" style={{ marginBottom: 8 }}>
-          <button className="btn link" onClick={() => { haptic.tap(); setMonth(shiftMonth(month, -1)); }}>‹</button>
-          <span>{t(MONTHS[m - 1])} {y}</span>
-          <button className="btn link" disabled={month >= today.slice(0, 7)} onClick={() => { haptic.tap(); setMonth(shiftMonth(month, 1)); }}>›</button>
+      <Section label={t('This week')}>
+        <div className="week-bars">
+          {p.week.map((d) => (
+            <div key={d.date} className={`wb${d.date === p.today ? ' today' : ''}`}>
+              <div className="wb-cols">
+                <i className="study" style={{ height: `${Math.round((d.study / max) * 100)}%` }} title={`${d.study}`} />
+                <i className="earned" style={{ height: `${Math.round((d.earned / max) * 100)}%` }} title={`${d.earned}`} />
+              </div>
+              <span>{t(WD[weekdayMon0(d.date)])}</span>
+            </div>
+          ))}
         </div>
-        {!stats ? <span className="spinner" /> : (
-          <div className="cal">
-            {WD.map((w) => <div key={w} className="wd">{t(w)}</div>)}
-            {Array.from({ length: lead }).map((_, i) => <div key={`e${i}`} />)}
-            {stats.days.map((d) => (
-              <div key={d.date} className={`day ${d.date > today ? 'future' : level(d.done, d.scheduled)} ${d.date === today ? 'today' : ''}`} title={`${d.done}/${d.scheduled}`}>{Number(d.date.slice(8))}</div>
-            ))}
-          </div>
-        )}
+        <div className="legend-row"><span><i className="lg study" />{t('study, min')}</span><span><i className="lg earned" />{t('earned for social media, min')}</span></div>
+        <div className="hint">{t('Study time is counted by itself from what you do in the app — nothing to enter by hand.')}</div>
       </Section>
 
-      {an && (
-        <Section label={t('Words and Reading')}>
-          <div className="tiles" style={{ marginBottom: 12 }}>
-            <div className="tile"><div className="v">{an.words.introduced}<span className="muted" style={{ fontSize: 16 }}> / {an.words.total}</span></div><div className="l">{t('words introduced')} · {an.words.mastered} {t('mastered')}</div></div>
-            <div className="tile"><div className="v">{an.words.sentences_total}</div><div className="l">{t('sentences written')}</div></div>
-            <div className="tile"><div className="v">{an.reading.tests}</div><div className="l">{t('reading tests')}</div></div>
-            <div className="tile"><div className="v">{an.reading.avg_band?.toFixed(1) ?? '—'}</div><div className="l">{t('average band')} · {t('best')} {an.reading.best_band?.toFixed(1) ?? '—'}</div></div>
-          </div>
-          <WeeklyChart weeks={an.weeks} />
-          <div className="legend-row">
-            <span><i style={{ background: 'var(--c1)' }} />{t('new words')}</span>
-            <span><i style={{ background: 'var(--c3)' }} />{t('recalled')}</span>
-            <span><i style={{ background: 'var(--c2)' }} />{t('sentences')}</span>
-            <span><i style={{ background: 'var(--c4)' }} />{t('reading band')}</span>
-          </div>
+      <Section label={t('Achievements · {a} of {b}', { a: earned, b: p.achievements.length })}>
+        {p.achievements.map((a) => {
+          const text = ACHIEVEMENT_TEXT[a.id];
+          const pct = Math.round((a.progress / a.target) * 100);
+          return (
+            <div key={a.id} className={`ach${a.earned_on ? ' got' : ''}`}>
+              <span className={`ach-badge${a.earned_on ? ' on' : ''}`}>{Icon.trophy(24)}</span>
+              <div className="grow">
+                <div className="row between" style={{ alignItems: 'baseline' }}>
+                  <span className="ach-title">{t(text.title)}</span>
+                  <span className="ach-bonus">{t('+{n} min', { n: a.bonus })}</span>
+                </div>
+                <div className="ach-how">{t(text.how)}</div>
+                <div className="ach-bar"><i style={{ width: `${pct}%` }} /></div>
+                <div className="ach-progress">{a.earned_on ? t('Done on {d} — bonus paid', { d: fmtShort(a.earned_on, lang) }) : t('{a} of {b}', { a: a.progress, b: a.target })}</div>
+              </div>
+            </div>
+          );
+        })}
+        <div className="hint">{t('Progress is counted from what you really did. Each bonus is paid once, on top of the daily limit.')}</div>
+      </Section>
+
+      {p.ledger.length > 0 && (
+        <Section label={t('Minutes: recent')}>
+          {p.ledger.slice(0, 15).map((l) => (
+            <div key={l.id} className="ledger-row">
+              <span>{ledgerLabel(l, t)}</span>
+              <span className="muted">{fmtShort(l.date, lang)}</span>
+              <b className={l.delta > 0 ? 'ok-ink' : ''}>{l.delta > 0 ? '+' : '−'}{Math.abs(Math.round(l.delta * 10) / 10)}</b>
+            </div>
+          ))}
         </Section>
       )}
-
-      <Section label={t('Mock tests')}>
-        {data.mocks.length ? <BandChart mocks={data.mocks} target={data.target} /> : <p className="muted small">{t('Add your first mock test result and the band chart appears here.')}</p>}
-        {data.mocks.length > 0 && (
-          <div style={{ marginTop: 8 }}>
-            <div className="mock-row"><span className="h">{t('Date')}</span><span className="h">L</span><span className="h">R</span><span className="h">W</span><span className="h">S</span><span className="h">{t('All')}</span><span /></div>
-            {[...data.mocks].reverse().map((mk) => (
-              <div key={mk.id} className="mock-row">
-                <span>{fmtShort(mk.date, lang)}</span>
-                <b>{mk.listening ?? '—'}</b><b>{mk.reading ?? '—'}</b><b>{mk.writing ?? '—'}</b><b>{mk.speaking ?? '—'}</b>
-                <b style={{ color: (mk.overall ?? 0) >= data.target ? 'var(--ok)' : 'inherit' }}>{mk.overall ?? '—'}</b>
-                <button className="btn link" style={{ color: 'var(--muted)', textDecoration: 'none' }} onClick={async () => {
-                  if (!(await confirmDialog(t('Delete this result?')))) return;
-                  await api.deleteMock(mk.id);
-                  haptic.success();
-                  void load();
-                }}>✕</button>
-              </div>
-            ))}
-          </div>
-        )}
-        <button className="btn sm" style={{ marginTop: 12 }} onClick={() => { haptic.tap(); setAddMock(true); }}>{t('Add a mock test')}</button>
-      </Section>
-
-      <Section label={t('Minutes by week')}>
-        <MinutesChart weeks={data.weeks} targetHours={data.weekly_hours} />
-        <div className="legend-row">
-          {SKILLS.map((s) => <span key={s}><i style={{ background: SKILL_COLOR[s] }} />{t(SKILL_LABEL[s])}</span>)}
-          <span><i style={{ background: 'var(--rule)' }} />{t('untagged')}</span>
-        </div>
-        <div className="hint">{t('{h} hours over twelve weeks.', { h: (data.total_minutes / 60).toFixed(1) })}</div>
-      </Section>
-
-      <Section label={t('Discipline · done of planned days')}>
-        <DisciplineChart weeks={data.weeks} />
-      </Section>
-
-      {addMock && <MockForm onClose={() => setAddMock(false)} onSaved={() => { setAddMock(false); void load(); }} />}
     </div>
-  );
-}
-
-// ---------- Charts (inline SVG, ink on paper) ----------
-
-const W = 340;
-
-function BandChart({ mocks, target }: { mocks: MockTest[]; target: number }) {
-  const t = useT();
-  const { lang } = useLang();
-  const H = 170;
-  const pad = { l: 26, r: 10, t: 14, b: 22 };
-  const [series, setSeries] = useState<BandSeries>('overall');
-  const xs = mocks.map((_, i) => pad.l + (mocks.length === 1 ? (W - pad.l - pad.r) / 2 : (i * (W - pad.l - pad.r)) / (mocks.length - 1)));
-  const min = 4, max = 9;
-  const y = (v: number) => pad.t + ((max - v) / (max - min)) * (H - pad.t - pad.b);
-  const vals = mocks.map((mk) => mk[series]);
-  const pts = vals.map((v, i) => (v == null ? null : ([xs[i], y(v)] as const)));
-  const path = pts.filter(Boolean).map((p, i) => `${i ? 'L' : 'M'}${p![0]},${p![1]}`).join(' ');
-  return (
-    <>
-      <div className="chips" style={{ marginBottom: 6 }}>
-        {BAND_SERIES.map((k) => (
-          <button key={k} type="button" className={`chip ${series === k ? 'on' : ''}`} onClick={() => { haptic.select(); setSeries(k); }}>{k === 'overall' ? t('Overall') : t(SKILL_LABEL[k])}</button>
-        ))}
-      </div>
-      <svg className="viz" viewBox={`0 0 ${W} ${H}`}>
-        {[5, 6, 7, 8, 9].map((v) => (
-          <g key={v}>
-            <line className="grid" x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} />
-            <text x={pad.l - 6} y={y(v) + 4} textAnchor="end">{v}</text>
-          </g>
-        ))}
-        <line x1={pad.l} x2={W - pad.r} y1={y(target)} y2={y(target)} stroke="var(--accent)" strokeWidth={1} strokeDasharray="3 4" />
-        <text x={W - pad.r} y={y(target) - 4} textAnchor="end" style={{ fill: 'var(--accent)' }}>{t('target')} {target.toFixed(1)}</text>
-        <path d={path} fill="none" stroke="var(--ink)" strokeWidth={1.5} strokeLinejoin="round" />
-        {pts.map((p, i) => p && (
-          <g key={i}>
-            <circle cx={p[0]} cy={p[1]} r={3.5} fill="var(--paper)" stroke="var(--ink)" strokeWidth={1.5} />
-            {mocks.length <= 8 && <text x={p[0]} y={p[1] - 9} textAnchor="middle" style={{ fill: 'var(--ink)' }}>{vals[i]?.toFixed(1)}</text>}
-          </g>
-        ))}
-        {mocks.map((mk, i) => (mocks.length <= 8 || i % 2 === 0 || i === mocks.length - 1) && <text key={mk.id} x={xs[i]} y={H - 6} textAnchor="middle">{fmtShort(mk.date, lang)}</text>)}
-      </svg>
-    </>
-  );
-}
-
-function WeeklyChart({ weeks }: { weeks: AnalyticsResponse['weeks'] }) {
-  const { lang } = useLang();
-  const H = 150;
-  const pad = { l: 26, r: 26, t: 12, b: 20 };
-  const maxN = Math.max(10, ...weeks.map((w) => Math.max(w.words_introduced, w.recalled, w.sentences)));
-  const y = (v: number) => pad.t + (1 - v / maxN) * (H - pad.t - pad.b);
-  const yb = (b: number) => pad.t + (1 - (b - 4) / 5) * (H - pad.t - pad.b);
-  const bw = (W - pad.l - pad.r) / weeks.length;
-  const pts = weeks.map((w, i) => (w.reading_band == null ? null : ([pad.l + i * bw + bw / 2, yb(w.reading_band)] as const)));
-  const path = pts.filter(Boolean).map((p, i) => `${i ? 'L' : 'M'}${p![0]},${p![1]}`).join(' ');
-  return (
-    <svg className="viz" viewBox={`0 0 ${W} ${H}`}>
-      {[0, 0.5, 1].map((f) => (
-        <g key={f}>
-          <line className="grid" x1={pad.l} x2={W - pad.r} y1={y(maxN * f)} y2={y(maxN * f)} />
-          <text x={pad.l - 5} y={y(maxN * f) + 4} textAnchor="end">{Math.round(maxN * f)}</text>
-        </g>
-      ))}
-      {[5, 7, 9].map((b) => <text key={b} x={W - pad.r + 5} y={yb(b) + 4} style={{ fill: 'var(--c4)' }}>{b}</text>)}
-      {weeks.map((w, i) => {
-        const x0 = pad.l + i * bw + 3;
-        const bwid = Math.max(3, (bw - 8) / 3);
-        const bars = [
-          { v: w.words_introduced, c: 'var(--c1)' },
-          { v: w.recalled, c: 'var(--c3)' },
-          { v: w.sentences, c: 'var(--c2)' },
-        ];
-        return (
-          <g key={w.from}>
-            {bars.map((b, k) => b.v > 0 && <rect key={k} x={x0 + k * bwid} y={y(b.v)} width={bwid - 1} height={Math.max(0, y(0) - y(b.v))} fill={b.c} rx={1} />)}
-            {(i % 2 === 0 || i === weeks.length - 1) && <text x={pad.l + i * bw + bw / 2} y={H - 6} textAnchor="middle">{fmtShort(w.from, lang)}</text>}
-          </g>
-        );
-      })}
-      {path && <path d={path} fill="none" stroke="var(--c4)" strokeWidth={1.5} />}
-      {pts.map((p, i) => p && <circle key={i} cx={p[0]} cy={p[1]} r={3} fill="var(--c4)" />)}
-    </svg>
-  );
-}
-
-function MinutesChart({ weeks, targetHours }: { weeks: WeekStat[]; targetHours: number }) {
-  const { lang } = useLang();
-  const H = 160;
-  const pad = { l: 30, r: 6, t: 12, b: 20 };
-  const maxMin = Math.max(targetHours * 60, ...weeks.map((w) => w.minutes_total), 60);
-  const y = (v: number) => pad.t + (1 - v / maxMin) * (H - pad.t - pad.b);
-  const bw = (W - pad.l - pad.r) / weeks.length;
-  const ticks = [0, 0.5, 1].map((f) => Math.round((maxMin * f) / 30) * 30);
-  return (
-    <svg className="viz" viewBox={`0 0 ${W} ${H}`}>
-      {ticks.map((t) => (
-        <g key={t}>
-          <line className="grid" x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} />
-          <text x={pad.l - 5} y={y(t) + 4} textAnchor="end">{t >= 60 ? `${(t / 60).toFixed(t % 60 ? 1 : 0)}h` : `${t}m`}</text>
-        </g>
-      ))}
-      {targetHours > 0 && <line x1={pad.l} x2={W - pad.r} y1={y(targetHours * 60)} y2={y(targetHours * 60)} stroke="var(--accent)" strokeWidth={1} strokeDasharray="3 4" />}
-      {weeks.map((w, i) => {
-        const x = pad.l + i * bw + 3;
-        const width = Math.max(4, bw - 6);
-        let acc = 0;
-        const tagged = SKILLS.reduce((s, k) => s + w.minutes_by_skill[k], 0);
-        const untagged = Math.max(0, w.minutes_total - tagged);
-        const segs = [...SKILLS.map((k) => ({ k: k as string, v: w.minutes_by_skill[k], c: SKILL_COLOR[k] })), { k: 'other', v: untagged, c: 'var(--rule)' }].filter((s) => s.v > 0);
-        return (
-          <g key={w.from}>
-            {segs.map((s) => {
-              const y0 = y(acc + s.v);
-              const h = y(acc) - y0;
-              acc += s.v;
-              return <rect key={s.k} x={x} y={y0} width={width} height={Math.max(0, h - 1)} fill={s.c} />;
-            })}
-            {i === weeks.length - 1 && w.minutes_total > 0 && <text x={x + width / 2} y={y(w.minutes_total) - 4} textAnchor="middle" style={{ fill: 'var(--ink)' }}>{(w.minutes_total / 60).toFixed(1)}h</text>}
-            {(i % 3 === 0 || i === weeks.length - 1) && <text x={x + width / 2} y={H - 6} textAnchor="middle">{fmtShort(w.from, lang)}</text>}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-function DisciplineChart({ weeks }: { weeks: WeekStat[] }) {
-  const { lang } = useLang();
-  const H = 110;
-  const pad = { l: 30, r: 6, t: 12, b: 20 };
-  const y = (v: number) => pad.t + (1 - v / 100) * (H - pad.t - pad.b);
-  const bw = (W - pad.l - pad.r) / weeks.length;
-  return (
-    <svg className="viz" viewBox={`0 0 ${W} ${H}`}>
-      {[0, 50, 100].map((t) => (
-        <g key={t}>
-          <line className="grid" x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} />
-          <text x={pad.l - 5} y={y(t) + 4} textAnchor="end">{t}%</text>
-        </g>
-      ))}
-      {weeks.map((w, i) => {
-        const pct = w.scheduled ? Math.round((w.done / w.scheduled) * 100) : 0;
-        const x = pad.l + i * bw + 3;
-        const width = Math.max(4, bw - 6);
-        return (
-          <g key={w.from}>
-            {w.scheduled > 0 && <rect x={x} y={y(pct)} width={width} height={Math.max(0, y(0) - y(pct))} fill={pct >= 80 ? 'var(--ink)' : pct >= 50 ? 'var(--c3)' : 'var(--accent)'} />}
-            {w.scheduled > 0 && i === weeks.length - 1 && <text x={x + width / 2} y={y(pct) - 4} textAnchor="middle" style={{ fill: 'var(--ink)' }}>{pct}%</text>}
-            {(i % 3 === 0 || i === weeks.length - 1) && <text x={x + width / 2} y={H - 6} textAnchor="middle">{fmtShort(w.from, lang)}</text>}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-// ---------- Forms ----------
-
-const BANDS = [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9];
-
-export function BandSelect({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
-  return (
-    <select value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}>
-      <option value="">—</option>
-      {BANDS.map((b) => <option key={b} value={b}>{b.toFixed(1)}</option>)}
-    </select>
-  );
-}
-
-function MockForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const toast = useToast();
-  const t = useT();
-  const [date, setDate] = useState(todayInTz(deviceTz()));
-  const [l, setL] = useState<number | null>(null);
-  const [r, setR] = useState<number | null>(null);
-  const [w, setW] = useState<number | null>(null);
-  const [s, setS] = useState<number | null>(null);
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const overall = ieltsOverall(l, r, w, s);
-  const submit = async () => {
-    if ([l, r, w, s].every((x) => x === null)) return toast(t('Enter at least one section'));
-    setBusy(true);
-    try {
-      await api.addMock({ date, listening: l, reading: r, writing: w, speaking: s, overall, note: note.trim() || null });
-      haptic.success();
-      onSaved();
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : t('Error'));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Sheet title={t('Mock test')} onClose={onClose}>
-      <Field label={t('Date')}><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-      <div className="grid5">
-        <Field label="Listening"><BandSelect value={l} onChange={setL} /></Field>
-        <Field label="Reading"><BandSelect value={r} onChange={setR} /></Field>
-        <Field label="Writing"><BandSelect value={w} onChange={setW} /></Field>
-        <Field label="Speaking"><BandSelect value={s} onChange={setS} /></Field>
-      </div>
-      <div className="muted small" style={{ marginBottom: 12 }}>Overall: <b>{overall?.toFixed(1) ?? t('— (all four sections needed)')}</b></div>
-      <Field label={t('Note')}><input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Cambridge 18, Test 2" /></Field>
-      <button className="btn solid block" disabled={busy} onClick={submit}>{t('Save')}</button>
-    </Sheet>
   );
 }

@@ -1,34 +1,36 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import type { AuthResponse } from '@tracker/shared';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import type { AuthResponse, SettingsView, ShopResponse, ShopTask, WalletResponse } from '@tracker/shared';
 import { api, auth, ApiError } from './api';
 import { haptic } from './tg';
-import { Today } from './screens/Today';
-import { Words } from './screens/Words';
-import { Practice } from './screens/Practice';
+import { Home } from './screens/Home';
+import { Shop } from './screens/Shop';
 import { Progress } from './screens/Progress';
 import { SettingsScreen } from './screens/Settings';
 import { ToastProvider } from './components/Toast';
+import { RewardProvider } from './components/Reward';
+import { Onboarding } from './components/Onboarding';
+import { TaskSheet } from './components/tasks/TaskSheet';
 import { Icon, Mascot } from './components/Mascot';
-import { CelebrateProvider, type GoTarget } from './components/Game';
 import { LangContext, readStoredLang, storeLang, translate, type Lang } from './i18n';
 
-type Tab = 'today' | 'words' | 'practice' | 'progress' | 'settings';
-export type PracticeFocus = 'reading' | 'writing' | 'speaking' | 'boss' | null;
+type Tab = 'home' | 'shop' | 'progress' | 'settings';
 
-/** Bot buttons open the app on a screen: ?go=reading|words|writing|speaking|boss|today. */
-function initialGo(): GoTarget | null {
+/** Bot buttons open the app on a screen (?go=shop|progress|settings) or straight on a task (?task=<id>). */
+function initialLink(): { tab: Tab; task: string | null } {
   try {
-    const v = new URLSearchParams(window.location.search).get('go');
-    return v && ['reading', 'words', 'writing', 'speaking', 'boss', 'today'].includes(v) ? (v as GoTarget) : null;
+    const q = new URLSearchParams(window.location.search);
+    const go = q.get('go');
+    const task = q.get('task');
+    const tab: Tab = go === 'shop' || go === 'progress' || go === 'settings' ? go : task ? 'shop' : 'home';
+    return { tab, task: task && /^(r:[a-z0-9:-]+|words|sentence|writing:(short|long)|speaking:(short|long))$/.test(task) ? task : null };
   } catch {
-    return null;
+    return { tab: 'home', task: null };
   }
 }
 
 const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
-  { id: 'today', label: 'Today', icon: () => Icon.streak(24) },
-  { id: 'words', label: 'Words', icon: () => Icon.book(24) },
-  { id: 'practice', label: 'Practice', icon: () => Icon.star(24) },
+  { id: 'home', label: 'Home', icon: () => Icon.gems(24) },
+  { id: 'shop', label: 'Shop', icon: () => Icon.star(24) },
   { id: 'progress', label: 'Progress', icon: () => Icon.chart(24) },
   { id: 'settings', label: 'Settings', icon: () => Icon.gear(24) },
 ];
@@ -62,24 +64,12 @@ function useKeyboardOpen(): boolean {
 export function App() {
   const [session, setSession] = useState<AuthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>(() => {
-    const g = initialGo();
-    return g === 'words' ? 'words' : g && g !== 'today' ? 'practice' : 'today';
-  });
-  const [focus, setFocus] = useState<PracticeFocus>(() => {
-    const g = initialGo();
-    return g && g !== 'words' && g !== 'today' ? g : null;
-  });
-  const go = (to: GoTarget) => {
-    haptic.select();
-    if (to === 'words') setTab('words');
-    else if (to === 'today') setTab('today');
-    else {
-      setFocus(to);
-      setTab('practice');
-    }
-    window.scrollTo(0, 0);
-  };
+  const link = useMemo(initialLink, []);
+  const [tab, setTab] = useState<Tab>(link.tab);
+  const [task, setTask] = useState<string | null>(link.task);
+  const [guide, setGuide] = useState(false);
+  const [shop, setShop] = useState<ShopResponse | null>(null);
+  const [wallet, setWallet] = useState<WalletResponse | null>(null);
   const keyboard = useKeyboardOpen();
   const [lang, setLangState] = useState<Lang>(() => readStoredLang() ?? 'en');
   const langCtx = useMemo(
@@ -94,14 +84,21 @@ export function App() {
     [lang],
   );
 
+  const refresh = useCallback(() => {
+    api.shop().then(setShop).catch(() => undefined);
+    api.wallet().then(setWallet).catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     auth()
       .then((r) => {
         setSession(r);
+        if (!r.settings.onboarded && !link.task) setGuide(true);
         if (!readStoredLang()) {
           setLangState(r.settings.lang);
           storeLang(r.settings.lang);
         }
+        refresh();
       })
       .catch((e: unknown) => setError(e instanceof ApiError ? e.message : 'Could not connect'));
   }, []);
@@ -117,31 +114,42 @@ export function App() {
   }
   if (!session) return <span className="spinner" />;
 
+  const start = (x: ShopTask) => setTask(x.id);
+  const afterReset = (s: SettingsView) => {
+    setSession({ ...session, settings: s });
+    setTab('home');
+    setGuide(true);
+    refresh();
+  };
+
   return (
     <LangContext.Provider value={langCtx}>
     <ToastProvider>
-    <CelebrateProvider>
-      {tab === 'today' && <Today isNew={session.user.is_new} go={go} />}
-      {tab === 'words' && <Words />}
-      {tab === 'practice' && <Practice focus={focus} onFocused={() => setFocus(null)} botUsername={session.settings.bot_username} />}
+    <RewardProvider>
+      {tab === 'home' && <Home shop={shop} wallet={wallet} onStart={start} onShop={() => setTab('shop')} onWallet={(w) => { setWallet(w); refresh(); }} />}
+      {tab === 'shop' && <Shop shop={shop} onStart={start} />}
       {tab === 'progress' && <Progress />}
-      {tab === 'settings' && <SettingsScreen initial={session.settings} />}
+      {tab === 'settings' && <SettingsScreen initial={session.settings} onGuide={() => setGuide(true)} onReset={afterReset} />}
       <nav className={`nav${keyboard ? ' nav-hidden' : ''}`} aria-hidden={keyboard}>
-        {TABS.map((t) => (
+        {TABS.map((x) => (
           <button
-            key={t.id}
-            className={tab === t.id ? 'on' : ''}
+            key={x.id}
+            className={tab === x.id ? 'on' : ''}
             onClick={() => {
               haptic.select();
-              setTab(t.id);
+              setTab(x.id);
+              if (x.id === 'home' || x.id === 'shop') refresh();
+              window.scrollTo(0, 0);
             }}
           >
-            {t.icon()}
-            <span>{translate(lang, t.label)}</span>
+            {x.icon()}
+            <span>{translate(lang, x.label)}</span>
           </button>
         ))}
       </nav>
-    </CelebrateProvider>
+      {task && <TaskSheet id={task} botUsername={session.settings.bot_username} onClose={() => { setTask(null); refresh(); }} onDone={refresh} />}
+      {guide && <Onboarding onClose={() => { setGuide(false); setSession((x) => (x ? { ...x, settings: { ...x.settings, onboarded: true } } : x)); }} />}
+    </RewardProvider>
     </ToastProvider>
     </LangContext.Provider>
   );

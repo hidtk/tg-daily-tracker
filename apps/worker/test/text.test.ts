@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VOCAB, checkTyped, clozeFor, countWords, isEnglish, overlap, sameWord, vocabUsed } from '@tracker/shared';
+import { VOCAB, checkTyped, clozeFor, countWords, isEnglish, sameWord, vocabUsed, wordForms } from '@tracker/shared';
 
 describe('typed answers', () => {
   it('ignores case, spaces and apostrophe style', () => {
@@ -7,17 +7,31 @@ describe('typed answers', () => {
     expect(checkTyped('WELL BEING', ['well-being']).ok).toBe(true);
     expect(checkTyped('account  for', ['account for'])).toEqual({ ok: true, exact: true });
   });
-  it('forgives a small typo in longer words, reports it', () => {
+  it('forgives one wrong letter in words longer than 5 letters, and reports it', () => {
     expect(checkTyped('mitigte', ['mitigate'])).toEqual({ ok: true, exact: false });
     expect(checkTyped('exacerbte', ['exacerbate']).ok).toBe(true);
-    expect(checkTyped('unprecedneted', ['unprecedented']).ok).toBe(true); // 2 edits in a 13-letter word
     expect(checkTyped('urbanization', ['urbanisation']).ok).toBe(true);
+    expect(checkTyped('unprecedneted', ['unprecedented']).ok).toBe(false); // two edits
   });
-  it('is strict with short words and wrong words', () => {
+  it('is strict with words of 5 letters or less and with wrong words', () => {
     expect(checkTyped('pak', ['peak']).ok).toBe(false);
     expect(checkTyped('peek', ['peak']).ok).toBe(false);
+    expect(checkTyped('trnd', ['trend']).ok).toBe(false);
     expect(checkTyped('alleviate', ['mitigate']).ok).toBe(false);
     expect(checkTyped('', ['mitigate']).ok).toBe(false);
+  });
+});
+
+describe('word forms', () => {
+  it('accepts plural, past and -ing forms, also inside a phrase', () => {
+    const f = (w: string) => wordForms(w);
+    expect(f('mitigate')).toEqual(expect.arrayContaining(['mitigate', 'mitigates', 'mitigated', 'mitigating']));
+    expect(f('phase out')).toEqual(expect.arrayContaining(['phased out', 'phasing out']));
+    expect(f('study')).toEqual(expect.arrayContaining(['studies', 'studied']));
+    expect(f('curb')).toEqual(expect.arrayContaining(['curbs', 'curbed', 'curbing']));
+    expect(f('undergo')).toEqual(expect.arrayContaining(['underwent', 'undergone']));
+    expect(checkTyped('Mitigated', f('mitigate'))).toEqual({ ok: true, exact: true });
+    expect(checkTyped('mitigatd', f('mitigate')).ok).toBe(true);
   });
 });
 
@@ -66,12 +80,9 @@ describe('vocabulary in free text', () => {
     expect(sameWord('peaks', 'peak')).toBe(true);
     expect(sameWord('speaker', 'peak')).toBe(false);
   });
-  it('counts words and spots Russian or a resubmitted text', () => {
+  it('counts words and spots Russian', () => {
     expect(countWords("It's a well-known fact, isn't it?")).toBe(6);
     expect(isEnglish('This is plainly an English sentence.')).toBe(true);
     expect(isEnglish('Это русский текст with a few words')).toBe(false);
-    const a = 'Remote work saves commuting time and gives employees flexibility, but isolation can hurt teamwork.';
-    expect(overlap(a, a + ' Indeed.')).toBeGreaterThan(0.9);
-    expect(overlap(a, 'Tourism brings money to villages while crowds damage fragile ancient monuments.')).toBeLessThan(0.3);
   });
 });

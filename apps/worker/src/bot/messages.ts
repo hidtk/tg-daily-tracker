@@ -1,135 +1,105 @@
-import type { Activity, Entry, VocabCard } from '@tracker/shared';
-import { diffDays, isScheduledOn } from '@tracker/shared';
-import { escapeHtml } from '../lib/telegram';
-import type { WeekStats } from '../lib/stats';
+import { SPEAKING_RULES, type Criterion, type ShopTask, type SpeakingCard } from '@tracker/shared';
+import { escapeHtml, type InlineKeyboardButton } from '../lib/telegram';
+import type { VoiceOutcome } from '../lib/tasks';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** Bot texts: short, plain English. Every button leads to a concrete place in the app. */
 
-export function fmtDate(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  return `${d} ${MONTHS[m - 1]}${y !== new Date().getUTCFullYear() ? ' ' + y : ''}`;
+export function appUrl(base: string, q?: { task?: string; go?: string }): string {
+  if (!q || base.startsWith('https://t.me/')) return base;
+  const params = new URLSearchParams(q.task ? { task: q.task } : { go: q.go ?? '' });
+  return `${base}${base.includes('?') ? '&' : '?'}${params.toString()}`;
 }
 
-export function welcomeText(firstName: string, isNew: boolean): string {
-  const hi = `Hello, ${escapeHtml(firstName || 'there')}.`;
-  if (isNew) {
-    return `${hi}\n\nThis is your IELTS trainer. You earn social-media minutes with work: a Reading test pays the most, words, Writing and Speaking add a little. Three quests a day, levels, a streak and bosses — everything is counted by itself.\n\nSpeaking: send me a voice message (at least a minute) on the card from /speak and it counts automatically.\n\nOpen the app to set your target band, exam date and lesson times.`;
-  }
-  return `${hi}\n\nOpen the app to practise, or use /quests, /speak and /hw.`;
+export function appButton(base: string, text: string, q?: { task?: string; go?: string }): InlineKeyboardButton {
+  const url = appUrl(base, q);
+  // web_app buttons require an HTTPS Mini App URL; a t.me fallback is a plain link.
+  return base.startsWith('https://t.me/') ? { text, url } : { text, web_app: { url } };
+}
+
+export function welcomeText(firstName: string): string {
+  return [
+    `Hello, ${escapeHtml(firstName || 'there')}.`,
+    '',
+    'Do small IELTS tasks, earn social-media minutes, spend them in Instagram, TikTok, YouTube and VK.',
+    'Open the app — it shows how it works in five short screens.',
+  ].join('\n');
 }
 
 export function helpText(): string {
   return [
-    '<b>Commands</b>',
-    '/app — open the trainer',
-    '/today — today’s status',
-    '/quests — today’s quests, the Speaking card and the Writing topic',
-    '/speak — the Speaking card: answer with a voice message here (60+ seconds), it counts by itself',
-    '/write — today’s Writing topic (written in the app)',
-    '/words — today’s new words; reviews are typed in the app',
-    '/hw — homework: list; /hw text — add (or a photo with the caption “hw”); /hw done N — mark done',
-    '/minutes — social-media minutes in the wallet (or the debt)',
-    '/unlock 15 — open social media for 15 minutes (spends minutes); /lock — close early',
-    '/partner — accountability partner (a link for a friend or a code for a group)',
-    '/partner off — unlink the partner',
+    '<b>How it works</b>',
+    '1. Open the app and pick a task in the Shop. Each card says how long it takes and how many minutes it pays.',
+    '2. Minutes open your social media. When they run out, the iPhone lock sends you to the Home Screen.',
+    '3. Speaking: send me a voice message here — I check the length and count it.',
+    '',
+    '/start — the app button',
     '/help — this message',
-    '',
-    'Reminder times, lessons and the exam date are in the app (Settings).',
   ].join('\n');
 }
 
-function mark(e: Entry | undefined): string {
-  if (!e) return '☐';
-  if (e.done) return '☑';
-  if (e.skipped) return '—';
-  return '☐';
+const TASK_NAME: Record<ShopTask['kind'], string> = {
+  reading: 'Reading',
+  words: 'Words',
+  sentence: 'A sentence with a word',
+  writing: 'Writing',
+  speaking: 'Speaking',
+};
+
+export function taskLine(t: ShopTask): string {
+  const what = t.kind === 'reading' ? `Reading · ${escapeHtml(t.title)} (${t.questions} questions)` : t.kind === 'writing' || t.kind === 'speaking' ? `${TASK_NAME[t.kind]} · ${escapeHtml(t.title)}` : TASK_NAME[t.kind];
+  return `• ${what} — about ${t.minutes} min, pays ${t.price} min`;
 }
 
-export function todayStatusText(date: string, activities: Activity[], entries: Entry[]): string {
-  const scheduled = activities.filter((a) => isScheduledOn(a, date));
-  if (!scheduled.length) return `Nothing scheduled for ${fmtDate(date)}.`;
-  const byId = new Map(entries.map((e) => [e.activity_id, e]));
-  const lines = scheduled.map((a) => {
-    const e = byId.get(a.id);
-    const note = e?.done_note || e?.plan_note;
-    const goal = a.goal_date ? ` <i>(${diffDays(date, a.goal_date)} days to ${escapeHtml(a.goal_text ?? 'the goal')})</i>` : '';
-    const mins = e?.minutes ? ` · ${e.minutes} min` : '';
-    const skills = e?.skills?.length ? ` · ${e.skills.join(', ')}` : '';
-    return `${mark(e)} <b>${escapeHtml(a.name)}</b>${mins}${skills}${goal}${note ? `\n      <i>${escapeHtml(note)}</i>` : ''}`;
-  });
-  const done = scheduled.filter((a) => byId.get(a.id)?.done).length;
-  return `<b>${fmtDate(date)}</b> — ${done ? 'practised' : 'not practised yet'}\n\n${lines.join('\n')}`;
-}
-
-export function weeklyText(cur: WeekStats, prev: WeekStats, ownerName?: string): string {
-  const pct = (d: number, s: number) => (s ? Math.round((d / s) * 100) : 0);
-  const lines = cur.perActivity.map(({ activity, done, scheduled, skipped }) => {
-    const bar = scheduled ? '▰'.repeat(Math.min(7, Math.round((done / scheduled) * 7))).padEnd(7, '▱') : '———————';
-    const sk = skipped ? ` <i>(skipped ${skipped})</i>` : '';
-    return `<b>${escapeHtml(activity.name)}</b>: ${done} of ${scheduled} days  ${bar}${sk}`;
-  });
-  const curPct = pct(cur.doneTotal, cur.scheduledTotal);
-  const prevPct = pct(prev.doneTotal, prev.scheduledTotal);
-  const delta = curPct - prevPct;
-  const cmp = prev.scheduledTotal
-    ? delta > 0
-      ? `${delta} points better than last week (${prevPct}%).`
-      : delta < 0
-        ? `${-delta} points below last week (${prevPct}%).`
-        : `Same as last week (${prevPct}%).`
-    : '';
-  const title = ownerName ? `<b>${escapeHtml(ownerName)}’s week</b>` : '<b>Your week</b>';
-  return [`${title} ${fmtDate(cur.from)} — ${fmtDate(cur.to)}`, '', ...lines, '', `Total: <b>${cur.doneTotal} of ${cur.scheduledTotal}</b> (${curPct}%)`, cmp]
-    .filter((l) => l !== undefined)
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n');
-}
-
-export function partnerText(botUsername: string, code: string, currentName: string | null): string {
-  const link = `https://t.me/${botUsername}?start=partner_${code}`;
+/** Morning: three tasks for today, each a button that opens it in the app. */
+export function morningText(top: ShopTask[], balance: number): string {
   return [
-    '<b>Accountability partner</b>',
-    currentName ? `Currently linked: <b>${escapeHtml(currentName)}</b>. A new link will replace them.` : 'Nobody yet.',
+    `<b>Good morning.</b> ${balance >= 1 ? `${Math.floor(balance)} min on the balance.` : 'No minutes on the balance yet.'}`,
     '',
-    'Send this link to a friend — once they open it, they will receive your weekly summary and missed days:',
-    link,
-    '',
-    `Or add me to a group and post there: <code>/partner ${code}</code>`,
-    '',
-    'Unlink: /partner off. Missed-day notices can be switched off in Settings.',
+    'Three good tasks for today:',
+    ...top.map(taskLine),
   ].join('\n');
 }
 
-export function partnerLinkedText(ownerName: string): string {
-  return `You are now the accountability partner of <b>${escapeHtml(ownerName)}</b>.\n\nOn Sundays I will send you their weekly summary, and a short note whenever a day is missed. Your job is simple: ask how it is going.`;
+export function morningKeyboard(base: string, top: ShopTask[]): InlineKeyboardButton[][] {
+  return [...top.map((t) => [appButton(base, `${TASK_NAME[t.kind]}: +${t.price} min`, { task: t.id })]), [appButton(base, 'Open the Shop', { go: 'shop' })]];
 }
 
-export function missedText(ownerName: string, date: string, missed: Activity[], skipped: { activity: Activity; reason: string | null }[]): string {
-  const parts: string[] = [];
-  if (missed.length) parts.push(`<b>${escapeHtml(ownerName)}</b> did not practise yesterday (${fmtDate(date)}).`);
-  if (skipped.length) {
-    const list = skipped.map(({ reason }) => (reason ? `— <i>${escapeHtml(reason)}</i>` : '— no reason given')).join('\n');
-    parts.push(`${missed.length ? '' : `<b>${escapeHtml(ownerName)}</b> `}skipped on purpose yesterday (${fmtDate(date)}):\n${list}`);
+export function cardText(card: SpeakingCard): string {
+  return `<b>${escapeHtml(card.title)}</b>\n${escapeHtml(card.prompt)}\nYou should say:\n${card.points.map((p) => `- ${escapeHtml(p)}`).join('\n')}`;
+}
+
+function mmss(sec: number): string {
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+}
+
+function criterionLine(c: Criterion): string {
+  switch (c.id) {
+    case 'duration':
+      return c.ok ? `Length ${mmss(Number(c.value))} — enough.` : `Length ${mmss(Number(c.value))} — too short, need at least ${mmss(Number(c.need))}.`;
+    case 'own_voice':
+      return c.ok ? 'Recorded by you — yes.' : 'Forwarded voice messages do not count. Record your own.';
+    case 'new_voice':
+      return c.ok ? 'New recording — yes.' : 'This voice message was already counted.';
+    default:
+      return '';
   }
-  parts.push(missed.length ? 'Perhaps worth asking what happened.' : 'At least it was an honest skip.');
-  return parts.join('\n\n');
 }
 
-export function missedSelfText(date: string, missed: Activity[], skipped: { activity: Activity; reason: string | null }[], partnerName: string | null): string {
-  const what = missed.length ? 'No practice logged' : `Skipped${skipped[0]?.reason ? ` — <i>${escapeHtml(skipped[0].reason)}</i>` : ''}`;
-  return `${what} yesterday (${fmtDate(date)}).${partnerName ? ` ${escapeHtml(partnerName)} has been told.` : ''} Today is a new day.`;
-}
-
-// ---------- vocabulary ----------
-
-export function wordLine(w: VocabCard): string {
-  return `<b>${escapeHtml(w.word)}</b> /${escapeHtml(w.ipa)}/ <i>${escapeHtml(w.pos)}</i>\n${escapeHtml(w.meaning)} — ${escapeHtml(w.ru)}\n<i>${escapeHtml(w.example)}</i>`;
-}
-
-export function wordsText(newWords: VocabCard[], dueCount: number): string {
-  if (!newWords.length && !dueCount) return 'No new words today and nothing to review. Set the daily number in Settings.';
-  const parts: string[] = [];
-  if (newWords.length) parts.push(`<b>Today’s words</b>\n\n${newWords.map(wordLine).join('\n\n')}`);
-  if (dueCount) parts.push(`<b>${dueCount} word${dueCount === 1 ? '' : 's'} to review</b> — in the app you see the Russian meaning or a sentence with a gap and type the English word. Only typed answers count.`);
-  return parts.join('\n\n');
+export function voiceReplyText(o: VoiceOutcome): string {
+  if (o.status === 'limit') return 'Both Speaking tasks are done today. New cards tomorrow — practice still helps, it just does not pay.';
+  const task = o.size === 'long' ? 'Speaking, long answer' : 'Speaking, short answer';
+  const checks = o.check.criteria.map(criterionLine).filter(Boolean).join('\n');
+  if (o.status === 'rejected') {
+    return [`<b>Not counted</b> — ${task}, card “${escapeHtml(o.card.title)}”.`, checks, '', 'Fix it and send a new voice message.'].join('\n');
+  }
+  const paid = o.payout.minutes > 0 ? `+${o.payout.minutes} min of social media.` : o.payout.capped ? 'Counted, but today’s limit of minutes is reached.' : 'Counted.';
+  return [
+    `<b>Counted</b> — ${task}, card “${escapeHtml(o.card.title)}”.`,
+    checks,
+    'The content is not checked automatically — honest practice is yours.',
+    paid,
+    o.next ? `\nOne more task today — ${o.next.size === 'long' ? 'long' : 'short'} answer, ${SPEAKING_RULES[o.next.size].minSeconds}+ seconds:\n${cardText(o.next.card)}` : '',
+  ]
+    .filter((l) => l !== '')
+    .join('\n');
 }

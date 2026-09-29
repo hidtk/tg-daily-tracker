@@ -12,6 +12,7 @@
     "db:migrate:local": "wrangler d1 migrations apply tracker-db --local"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
     "@tracker/shared": "*",
     "zod": "^4.5.4"
   },

@@ -81,39 +81,8 @@ export class Bot {
     return this.call('answerCallbackQuery', { callback_query_id: id, text });
   }
 
-  setWebhook(url: string, secretToken: string) {
-    return this.call('setWebhook', { url, secret_token: secretToken, allowed_updates: ['message', 'callback_query'] });
-  }
-
-  setChatMenuButton(webAppUrl: string, text = 'IELTS') {
-    return this.call('setChatMenuButton', { menu_button: { type: 'web_app', text, web_app: { url: webAppUrl } } });
-  }
-
-  setMyCommands(commands: { command: string; description: string }[]) {
-    return this.call('setMyCommands', { commands });
-  }
-
-  editMessageText(chatId: number, messageId: number, text: string, keyboard?: InlineKeyboardButton[][]) {
-    return this.call('editMessageText', {
-      chat_id: chatId,
-      message_id: messageId,
-      text,
-      parse_mode: 'HTML',
-      reply_markup: keyboard ? { inline_keyboard: keyboard } : undefined,
-    });
-  }
-
   editMessageReplyMarkup(chatId: number, messageId: number, keyboard?: InlineKeyboardButton[][]) {
     return this.call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: keyboard ? { inline_keyboard: keyboard } : undefined });
-  }
-
-  sendPhoto(chatId: number, fileId: string, caption?: string) {
-    return this.call('sendPhoto', { chat_id: chatId, photo: fileId, caption, parse_mode: 'HTML' });
-  }
-
-  async fileUrl(fileId: string): Promise<string | null> {
-    const f = await this.call<{ file_path?: string }>('getFile', { file_id: fileId });
-    return f?.file_path ? `https://api.telegram.org/file/bot${this.token}/${f.file_path}` : null;
   }
 }
 

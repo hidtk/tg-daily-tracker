@@ -244,15 +244,15 @@ End Repeat`}</pre>
             <>
               <p>1. Нажми «Проверить ссылку» выше — должно появиться «Ссылка работает».</p>
               <p>2. Без минут открой Instagram — тебя сразу выкинет на экран «Домой».</p>
-              <p>3. Заработай пару минут (например, одно предложение и слова), открой Instagram и ничего не делай. Когда минуты кончатся, iPhone сам выкинет на экран «Домой» — в пределах {GATE_TICK_SECONDS} секунд.</p>
-              <p>4. В «Практике» → «Последние заходы» появится запись с потраченными минутами.</p>
+              <p>3. Заработай пару минут (например, задание «Предложение со словом» в Магазине), открой Instagram и ничего не делай. Когда минуты кончатся, iPhone сам выкинет на экран «Домой» — в пределах {GATE_TICK_SECONDS} секунд.</p>
+              <p>4. На Главной баланс уменьшится, а в «Прогрессе» → «Минуты: последние» появится строка «Соцсети».</p>
             </>
           ) : (
             <>
               <p>1. Tap “Test the link” — you should see “The link works”.</p>
               <p>2. With no minutes, open Instagram — you land on the Home Screen at once.</p>
-              <p>3. Earn a couple of minutes, open Instagram and just wait. When they run out, the iPhone sends you Home within {GATE_TICK_SECONDS} seconds.</p>
-              <p>4. Practice → Recent sessions shows the entry with the minutes spent.</p>
+              <p>3. Earn a couple of minutes (e.g. the “A sentence with a word” task in the Shop), open Instagram and just wait. When they run out, the iPhone sends you Home within {GATE_TICK_SECONDS} seconds.</p>
+              <p>4. The balance on Home goes down, and Progress → “Minutes: recent” shows a “Social media” line.</p>
             </>
           )}
         </div>

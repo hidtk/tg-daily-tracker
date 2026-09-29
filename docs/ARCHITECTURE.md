@@ -21,7 +21,7 @@ Cloudflare Cron ────────────┘        │
 ```
 apps/web          — Mini App (Vite + React)
 apps/worker       — Cloudflare Worker: API, webhook бота, cron, миграции D1
-packages/shared   — типы, zod-схемы, логика расписаний/стриков (используется и клиентом, и сервером)
+packages/shared   — типы, zod-схемы, каталог магазина, рубрики проверки, достижения, банк слов и Reading (клиент и сервер)
 scripts/          — setup.mjs (мастер установки), setup-bot.mjs (webhook + menu button), dev-initdata.mjs
 .github/workflows — ci.yml, deploy-worker.yml, d1-sql.yml (разовый SQL к прод-базе)
 ```
@@ -29,70 +29,61 @@ scripts/          — setup.mjs (мастер установки), setup-bot.mjs
 ## API
 
 ```
-POST /api/auth               { initData, tz } → { token, user, settings }
-GET  /api/today?date=        активности дня + записи
-PUT  /api/entries            { entries: [...] } (batch, только сегодня/вчера)
-GET  /api/activities         ?archived=1 — включая архив
-POST /api/activities
-PUT  /api/activities/:id     поля активности, sort, archived_at (null = вернуть из архива)
-DELETE /api/activities/:id   = архивировать
-GET  /api/stats?month=YYYY-MM  стрики + heatmap
-GET  /api/settings, PUT /api/settings
-GET  /api/export             JSON (Bearer или ?token=)
-GET  /api/ielts              статистика IELTS (недели, пробные тесты, дисциплина)
-POST /api/mocks, DELETE /api/mocks/:id
-GET  /api/proofs/:id/image   фото-подтверждение (прокси к Telegram)
-DELETE /api/proofs/:id, DELETE /api/partner
-GET  /api/vocab               слова дня и очередь вопросов (без самих слов: перевод или пропуск в предложении)
-POST /api/vocab/answer        { word_id, answer, hint } → проверка ввода на сервере, интервалы, XP/минуты
-GET/POST /api/sentences      слово для предложения; предложение → XP и (первые 5 в день) +1 мин
-GET  /api/game                уровень, XP, серия, квесты дня, босс, минуты за сегодня (включая «ждут Reading»)
-GET  /api/writing, POST /api/writing/start, POST /api/writing { text }   Writing: тема, старт таймера, проверка
-GET  /api/speaking            карточка Speaking (ответ — голосовое боту)
-GET  /api/analytics          слова, предложения, Reading по неделям
-POST /api/reading/refresh    открыть следующую партию тестов
-POST /api/lock/config, DELETE /api/lock/config, POST /api/lock/unlock {minutes}, POST /api/lock/close
+POST /api/auth               { initData, tz } → { token, user, settings (+ onboarded) }
+GET  /api/settings, PUT /api/settings   tz, reminders, morning_time, vocab_per_day, lang
+POST /api/onboarded          { done } — знакомство просмотрено
+POST /api/reset              { word: "ЗАНОВО" | "RESET" } — «Начать заново»
+GET  /api/shop               все задания: цена, время, сложность, статус; top — 3 лучших сейчас; баланс и лимит дня
+GET  /api/reading/:taskId    часть Reading (r:<тест>:tfng|mcq|gap|all) — текст и вопросы без ответов
+POST /api/reading/submit     { task_id, seconds, answers } → верно, оплата, ошибки (ответы — только если сдано)
+GET  /api/vocab, POST /api/vocab/answer { word_id, answer, hint }   слова вводом, проверка на сервере
+GET/POST /api/sentences      слово для предложения; предложение → рубрика, 1 мин
+GET  /api/writing?size=short|long, POST /api/writing/start { size }, POST /api/writing { size, text } → рубрика (+ ИИ)
+GET  /api/speaking           карточки short/long (ответ — голосовое боту)
+GET  /api/progress           достижения, неделя (учёба из автолога и заработок), серия, последние движения минут
+GET  /api/wallet, PUT /api/wallet   приложения, лимиты, ссылка gate, состояние NextDNS
+POST /api/lock/config, DELETE /api/lock/config, POST /api/lock/unlock {minutes}, POST /api/lock/close, GET /api/lock/check
 GET  /dns/:key.mobileconfig  профиль DNS для iPhone
-GET  /api/wallet, PUT /api/wallet   баланс, лимиты, gate-ссылка
-POST /api/reading/submit     { test_id, seconds, answers } → band, минуты, зачёт квеста, награда
-POST /api/boss/submit        то же для босса: раз в день, ответы скрыты до победы
 GET  /gate/:key?app=any&e=open  → «ALLOW <мин> <сек>» (сессия началась) или «BLOCK 0»
 GET  /gate/:key?e=tick       каждые 20 с из цикла «Команд» → «ALLOW <мин> <сек осталось>», «BLOCK 0 0» (на экран «Домой»),
                              «ALLOW 0 0 / STOP» (сессии нет — цикл завершается)
 GET  /gate/:key?app=any&e=close | e=status
-GET/POST /api/lessons, PUT/DELETE /api/lessons/:id
-GET /api/homeworks, POST /api/homeworks/:id/done, DELETE /api/homeworks/:id
-POST /bot/webhook            Telegram updates (проверяется secret_token); голосовое = ответ Speaking
-cron */15 * * * *            напоминания и недельные сводки по tz пользователей
-cron * * * * *               закрытие истёкших окон замка
+POST /bot/webhook            /start, /help; голосовое = ответ Speaking
+cron */15 * * * *            утреннее сообщение с тремя заданиями; закрытие «потерянных» сессий
+cron * * * * *               закрытие истёкших окон NextDNS
 ```
 
 ## Модель данных
 
+Используемые таблицы (миграции 0001–0012; старые таблицы — activities для автолога, lessons/homeworks/mock_tests/proofs — остаются в базе, но в интерфейсе их нет):
+
 ```
-users(id, tg_id, first_name, tz, morning_time, evening_time, weekly_summary, weekly_time,
-      ai_endpoint, ai_key, last_morning_sent, last_evening_sent, last_weekly_sent, created_at)
-activities(id, user_id, name, emoji, color, schedule_type, schedule_days, anchor_date,
-           goal_text, goal_date, sort, archived_at)
-entries(id, user_id, activity_id, date, planned, plan_note, done, done_note, minutes, skills, updated_at)
-  unique(activity_id, date)
-proofs(id, user_id, activity_id, date, type photo|chat, file_id, text)
-mock_tests(id, user_id, date, listening, reading, writing, speaking, overall, note)
-users +: strict_mode, partner_chat_id, partner_name, partner_code, ielts_target, ielts_exam_date, ielts_weekly_hours,
-        wallet_enabled, sm_balance, sm_bank_cap, sm_daily_cap, sm_apps, sm_api_key
-reading_attempts(id, user_id, test_id, date, correct, total, band, seconds, earned)
-wallet_ledger(id, user_id, at, date, delta, reason, note)
-wallet_sessions(id, user_id, app, started_at, ended_at, minutes)
+users(id, tg_id, first_name, tz, morning_time, last_morning_sent, ielts_daily_task (= утреннее сообщение вкл.),
+      vocab_per_day, lang, onboarded, wallet_enabled, sm_balance, sm_bank_cap, sm_daily_cap, sm_apps, sm_api_key,
+      nextdns_key, nextdns_profile, lock_state, lock_until, lock_password, lock_error)
+reading_attempts(id, user_id, test_id = r:<тест>:<часть>, date, correct, total, band, seconds, earned, counted)
+wallet_ledger(id, user_id, at, date, delta, reason reading|words|sentence|writing|speaking|achievement|spend|manual, note = id задания)
+wallet_sessions(id, user_id, app, started_at, ended_at, minutes, last_seen, closed_by close|tick|kicked|open|stale)
 vocab_progress(user_id, word_id, stage, introduced_on, next_review, reviews, lapses, last_reviewed)
-vocab_reviews(id, user_id, word_id, date, ok, kind self|translate|cloze, hint, practice)
-reading_attempts +: counted (не наспех и не наугад — идёт в квест и серию)
-wallet_sessions +: last_seen (пульс таймера), closed_by close|tick|kicked|open|stale
-practice_tasks(id, user_id, kind writing|speaking, date, topic, started_at, submitted_at, status, text, words, vocab, seconds, file_unique_id)
+vocab_reviews(id, user_id, word_id, date, ok, kind translate|cloze, hint, practice)
+vocab_sentences(id, user_id, word_id, date, text)
+practice_tasks(id, user_id, kind writing|speaking, task writing:short|… , date, topic, started_at, status, text, words,
+               vocab, seconds, file_unique_id, feedback JSON: критерии и мнение ИИ)
+achievements(user_id, id, date, bonus)          — одна строка на достижение: бонус платится один раз
+activities + entries                            — автоматический журнал дня (минуты учёбы)
 ```
 
-## Игра и экономика
+## Магазин и экономика
 
-- `packages/shared/src/game.ts` — чистые правила: курс минут (`EARN`), XP, уровни и боссы, серия со щитами, квесты, `settlePlan`.
-- `apps/worker/src/lib/game.ts` — `gameState` пересчитывает всё из исходных таблиц (reading_attempts, vocab_reviews, vocab_sentences, practice_tasks, wallet_ledger); `settleDay` доплачивает минуты за работу, кроме Reading (идемпотентно), и сундук.
-- Без Reading за день платится не больше 10 мин за остальную работу; остальное «ждёт» и открывается Reading-тестом в тот же день.
+- `packages/shared/src/shop.ts` — цены, время и сложность заданий, деление Reading на части (`readingParts`), оплата `readingPay` (цена × доля верных; < 50 % или быстрее минимума — 0), выбор «3 лучших» (`pickTop`).
+- `apps/worker/src/lib/shop.ts` — живой список: что открыто, повтор завтра, сделано сегодня, лимит.
+- `apps/worker/src/lib/wallet.ts` — `pay` (лимит дня, банк, потолок вида задания) и `settleAchievements` (бонус один раз).
+- Повтор одного и того же задания не платит: Reading-часть платит один раз; несданная — повтор со следующего дня; Writing и Speaking каждого размера — раз в день; слово — раз в день; слова оплачиваются за 10 ответов в день, предложения — за 5.
 - Время в соцсетях списывается по реальному открытию/закрытию; перерасход уходит в минус (долг), вход закрыт, пока долг не погашен.
+
+## Проверка
+
+- `packages/shared/src/reading.ts` `isCorrect` — ключ ответов; регистр, артикль, пробелы/дефисы, цифры↔слова, британское/американское написание, список `accept`.
+- `packages/shared/src/text.ts` — `checkTyped` (Левенштейн ≤ 1 для слов длиннее 5 букв), `wordForms` (-s, -ed, -ing, неправильные).
+- `packages/shared/src/check.ts` — рубрики: предложение, Writing (объём, недавние слова, связки, предложения, английский, разнообразие, без мусора, не копия, не текст темы, время), Speaking (длина, своя запись, новая запись).
+- `apps/worker/src/lib/llm.ts` — необязательная ИИ-оценка Writing (секрет `ANTHROPIC_API_KEY`): «по теме?», примерный балл, советы. Любая ошибка — остаётся только рубрика.

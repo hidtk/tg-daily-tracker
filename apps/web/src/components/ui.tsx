@@ -72,18 +72,8 @@ export function confirmDialog(msg: string): Promise<boolean> {
   });
 }
 
-export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 export const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-export const WD_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-export function fmtDate(iso: string, today?: string, lang: Lang = 'en'): string {
-  if (iso === today) return translate(lang, 'Today');
-  const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  const wd = translate(lang, WD_LONG[(dt.getUTCDay() + 6) % 7]);
-  return `${wd}, ${d} ${translate(lang, MONTHS_SHORT[m - 1])}`;
-}
 
 export function fmtShort(iso: string, lang: Lang = 'en'): string {
   const [, m, d] = iso.split('-').map(Number);

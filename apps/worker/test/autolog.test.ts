@@ -5,7 +5,7 @@ import type { Repo, UserRow } from '../src/lib/db';
 function fakeRepo(a: { readingTests: number; readingSeconds: number; reviews: number; sentences: number; writings?: number; writingSeconds?: number; voices?: number; voiceSeconds?: number }) {
   const calls: unknown[][] = [];
   const repo = {
-    listActivities: async () => [{ id: 7, kind: 'ielts' }],
+    ieltsActivityId: async () => 7,
     activityOn: async () => a,
     autoEntry: async (...args: unknown[]) => void calls.push(args),
   } as unknown as Repo;
