@@ -175,20 +175,24 @@ export function value(t: Pick<ShopTask, 'price' | 'minutes'>): number {
   return t.minutes ? t.price / t.minutes : 0;
 }
 
+/** Suggested tasks fit into a short break: up to this many minutes, when there is such a task. */
+export const TOP_MAX_MINUTES = 10;
+
 /**
  * Three tasks to suggest now: one Reading, one quick vocabulary task, one own-English task (Writing or Speaking),
- * each the best value in its group; free slots are filled by the next best value.
+ * each the best value in its group among tasks that take up to TOP_MAX_MINUTES; free slots are filled by the next best.
  */
 export function pickTop(tasks: ShopTask[], n = 3): string[] {
   const doable = tasks.filter((t) => (t.status === 'open' || t.status === 'retry') && t.price > 0);
-  const best = (list: ShopTask[]) => [...list].sort((a, b) => value(b) - value(a) || a.minutes - b.minutes)[0];
+  const byValue = (a: ShopTask, b: ShopTask) => value(b) - value(a) || a.minutes - b.minutes;
+  const best = (list: ShopTask[]) => [...list.filter((t) => t.minutes <= TOP_MAX_MINUTES)].sort(byValue)[0] ?? [...list].sort(byValue)[0];
   const picks: ShopTask[] = [];
   const groups: ShopKind[][] = [['reading'], ['words', 'sentence'], ['writing', 'speaking']];
   for (const g of groups) {
     const b = best(doable.filter((t) => g.includes(t.kind)));
     if (b) picks.push(b);
   }
-  for (const t of [...doable].sort((a, b) => value(b) - value(a))) {
+  for (const t of [...doable].sort(byValue)) {
     if (picks.length >= n) break;
     if (!picks.includes(t)) picks.push(t);
   }

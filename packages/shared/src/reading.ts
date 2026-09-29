@@ -230,9 +230,6 @@ export function paragraphHint(explain: string): string | null {
   return explain.match(/Paragraphs? ([A-H])/)?.[1] ?? null;
 }
 
-export const TFNG_OPTIONS = ['TRUE', 'FALSE', 'NOT GIVEN'];
-export const MCQ_LETTERS = ['A', 'B', 'C', 'D'];
-
 import { READING_TESTS_2 } from './reading2';
 import { READING_TESTS_3 } from './reading3';
 import { READING_TESTS_4 } from './reading4';

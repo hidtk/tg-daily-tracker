@@ -4,7 +4,8 @@ name: Deploy (Worker + Mini App)
 #   CLOUDFLARE_API_TOKEN  — "Edit Cloudflare Workers" template + D1 Edit
 #   BOT_TOKEN             — from @BotFather
 #   SESSION_SECRET        — any long random string
-# Optional secrets: CLOUDFLARE_ACCOUNT_ID (auto-detected), D1_DATABASE_ID (auto-created by name)
+# Optional secrets: CLOUDFLARE_ACCOUNT_ID (auto-detected), D1_DATABASE_ID (auto-created by name),
+#   ANTHROPIC_API_KEY (turns on the AI opinion on Writing texts)
 # Optional variables: BOT_USERNAME (without @) — read from Telegram when unset
 # SESSION_SECRET: letters, digits, _ and - only (it doubles as the webhook secret), e.g. openssl rand -hex 32
 
@@ -23,6 +24,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       HAS_BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' }}
+      HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -126,6 +128,14 @@ jobs:
         run: |
           printf '%s' "${{ secrets.BOT_TOKEN }}" | npx wrangler secret put BOT_TOKEN
           printf '%s' "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
+
+      - name: Set the AI key (optional)
+        if: env.HAS_ANTHROPIC_KEY == 'true'
+        working-directory: apps/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.acct.outputs.id }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: printf '%s' "$ANTHROPIC_API_KEY" | npx wrangler secret put ANTHROPIC_API_KEY
 
       - name: Configure Telegram bot (webhook, menu button, commands)
         if: env.HAS_BOT_TOKEN == 'true'

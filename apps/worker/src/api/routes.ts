@@ -116,7 +116,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   if (path === '/shop' && method === 'GET') return json(await shopState(repo, user, today));
 
   // ---- Reading ----
-  const readMatch = path.match(/^\/reading\/(r:[a-z0-9:-]+)$/);
+  const readMatch = path.match(/^\/reading\/(r(?::|%3A)[a-z0-9:%A-F-]+)$/i);
   if (readMatch && method === 'GET') return json(await readingTask(repo, user, today, decodeURIComponent(readMatch[1])));
   if (path === '/reading/submit' && method === 'POST') {
     return json(await submitReading(repo, user, today, ReadingSubmitSchema.parse(await readJson(req))));

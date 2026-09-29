@@ -151,7 +151,8 @@ describe('Reading parts in the shop', () => {
     await read(readingTaskId('rt-01', 'gap'), 4);
     const ids = (await shopState(repo, user, addDays(today, 1))).tasks.filter((t) => t.kind === 'reading').map((t) => t.id);
     expect(ids.some((id) => id.startsWith('r:rt-01:'))).toBe(false);
-    expect(ids).toEqual(expect.arrayContaining([readingTaskId('rt-02', 'tfng'), readingTaskId('rt-03', 'all'), readingTaskId('boss-1', 'gap')]));
+    expect(ids).toEqual(expect.arrayContaining([readingTaskId('rt-02', 'tfng'), readingTaskId('rt-02', 'all'), readingTaskId('boss-1', 'gap')]));
+    expect(ids.some((id) => id.startsWith('r:rt-03:'))).toBe(false);
   });
 
   it('the daily limit caps the pay and closes the shop for today', async () => {
@@ -293,6 +294,7 @@ describe('the shop', () => {
     expect(shop.top).toHaveLength(3);
     const top = shop.top.map((id) => shop.tasks.find((t) => t.id === id)!);
     expect(new Set(top.map((t) => (t.kind === 'reading' ? 'r' : t.kind === 'words' || t.kind === 'sentence' ? 'v' : 'o'))).size).toBe(3);
+    expect(top.every((t) => t.minutes <= 10)).toBe(true);
     for (const t of shop.tasks) {
       expect(t.minutes).toBeGreaterThan(0);
       expect([1, 2, 3]).toContain(t.level);
@@ -325,6 +327,14 @@ describe('«Начать заново»', () => {
     expect(await repo.achievementRows(user.id)).toEqual([]);
     // the part can be done again
     expect((await read(tfng, 5)).payout.minutes).toBeGreaterThan(0);
+  });
+
+  it('a Reading part comes without the answers (the id may be URL-encoded)', async () => {
+    const res = await api('GET', `/reading/${encodeURIComponent(tfng)}`);
+    const body = (await res.json()) as { questions: Record<string, unknown>[]; paragraphs: string[] };
+    expect(body.questions).toHaveLength(5);
+    expect(body.paragraphs.length).toBeGreaterThan(3);
+    expect(JSON.stringify(body.questions)).not.toMatch(/"answer"|"explain"/);
   });
 
   it('the guide can be marked as seen', async () => {

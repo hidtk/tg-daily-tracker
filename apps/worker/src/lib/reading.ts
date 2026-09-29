@@ -43,10 +43,10 @@ export function passageFinished(test: ReadingPart['test'], hard: boolean, attemp
   return st(whole) === 'paid' || parts.filter((p) => p.part !== 'all').every((p) => st(p) === 'paid');
 }
 
-/** Passages on offer: the next two regular ones and the next hard one that are not finished. */
+/** Passages on offer: the next regular one and the next hard one that are not finished. */
 export function passagesOnOffer(attempts: AttemptRow[], today: string) {
   const open = readingCatalog().filter(({ test, hard }) => !passageFinished(test, hard, attempts, today));
-  return [...open.filter((x) => !x.hard).slice(0, 2), ...open.filter((x) => x.hard).slice(0, 1)];
+  return [...open.filter((x) => !x.hard).slice(0, 1), ...open.filter((x) => x.hard).slice(0, 1)];
 }
 
 /** The part as the app sees it — no answers, no explanations. */
