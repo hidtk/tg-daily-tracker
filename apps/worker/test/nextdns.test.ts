@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { checkBlocked, setLocked } from '../src/lib/nextdns';
+import { checkBlocked, mobileconfig, setLocked } from '../src/lib/nextdns';
 
 type Call = { method: string; url: string; body?: unknown };
 
@@ -31,5 +31,15 @@ describe('NextDNS lock', () => {
     }));
     const r = await checkBlocked('k', 'abc123', ['instagram', 'tiktok', 'vk']);
     expect(r).toEqual({ ok: true, blocked: { instagram: true, tiktok: false, vk: false } });
+  });
+});
+
+describe('mobileconfig', () => {
+  it('is a plist with a DoH payload and a removal password', () => {
+    const x = mobileconfig('abc123', 'IELTS-1', '654321');
+    expect(x).toContain('<key>DNSProtocol</key><string>HTTPS</string>');
+    expect(x).toContain('https://dns.nextdns.io/abc123/IELTS-1');
+    expect(x).toContain('com.apple.profileRemovalPassword');
+    expect(x).toContain('<key>RemovalPassword</key><string>654321</string>');
   });
 });

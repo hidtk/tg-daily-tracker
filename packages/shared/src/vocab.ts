@@ -179,21 +179,3 @@ export function vocabById(id: number): VocabWord | undefined {
 /** Review intervals in days after each successful recall (Leitner-style). */
 export const REVIEW_INTERVALS = [1, 3, 7, 14, 30];
 export const VOCAB_PER_DAY_DEFAULT = 5;
-
-/** Four-option quiz for a word: the correct meaning plus three distractors, deterministic per day. */
-export function quizOptions(word: VocabWord, seed: number): { options: string[]; answer: number } {
-  const pool = VOCAB.filter((w) => w.id !== word.id && w.pos === word.pos);
-  const fallback = VOCAB.filter((w) => w.id !== word.id);
-  const src = pool.length >= 3 ? pool : fallback;
-  const picks: VocabWord[] = [];
-  let s = seed * 9301 + word.id * 49297;
-  while (picks.length < 3) {
-    s = (s * 1103515245 + 12345) % 2147483648;
-    const cand = src[s % src.length];
-    if (!picks.includes(cand)) picks.push(cand);
-  }
-  const options = [word, ...picks].map((w) => w.meaning);
-  // deterministic shuffle
-  const order = options.map((o, i) => ({ o, i, k: (seed * 31 + i * 17 + word.id * 7) % 101 })).sort((a, b) => a.k - b.k);
-  return { options: order.map((x) => x.o), answer: order.findIndex((x) => x.i === 0) };
-}

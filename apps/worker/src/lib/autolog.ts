@@ -1,4 +1,4 @@
-import type { Skill } from '@tracker/shared';
+type Skill = 'reading' | 'vocab' | 'writing' | 'speaking';
 import type { Repo, UserRow } from './db';
 
 /**
@@ -8,8 +8,6 @@ import type { Repo, UserRow } from './db';
 export const AUTO_MINUTES = { vocabReview: 0.5, sentence: 2, readingMaxPerTest: 60, speakingPrep: 1 } as const;
 
 export async function syncDay(repo: Repo, user: UserRow, date: string): Promise<void> {
-  const act = (await repo.listActivities(user.id)).find((a) => a.kind === 'ielts');
-  if (!act) return;
   const a = await repo.activityOn(user.id, date, AUTO_MINUTES.readingMaxPerTest * 60);
   const writings = a.writings ?? 0;
   const voices = a.voices ?? 0;
@@ -25,7 +23,7 @@ export async function syncDay(repo: Repo, user: UserRow, date: string): Promise<
   if (voices) skills.push('speaking');
   if (!skills.length) return;
   const minutes = Math.max(1, Math.round(reading + vocab + writing + speaking));
-  await repo.autoEntry(user.id, act.id, date, minutes, skills);
+  await repo.autoEntry(user.id, await repo.ieltsActivityId(user.id), date, minutes, skills);
 }
 
 /** Never let the log break the action that triggered it. */

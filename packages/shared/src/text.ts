@@ -36,14 +36,14 @@ export function levenshtein(a: string, b: string): number {
   return prev[b.length];
 }
 
-/** Allowed typos: none for short words, one up to 8 letters, two for longer ones. */
+/** Allowed typos: one letter (Levenshtein ≤ 1) in words longer than 5 letters, none in short ones. */
 export function typoTolerance(len: number): number {
-  return len <= 4 ? 0 : len <= 8 ? 1 : 2;
+  return len > 5 ? 1 : 0;
 }
 
 /**
- * Grade a typed answer against the expected word (and optional accepted variants).
- * Case, extra spaces and a hyphen written as a space are ignored; a small typo still counts, but is reported.
+ * Grade a typed answer against the expected word (and optional accepted variants, e.g. wordForms()).
+ * Case, extra spaces and a hyphen written as a space are ignored; a one-letter typo in a long word still counts, but is reported.
  */
 export function checkTyped(given: string, expected: string[]): { ok: boolean; exact: boolean } {
   const g = normalizeWord(given);
@@ -66,7 +66,51 @@ const IRREGULAR: Record<string, string[]> = {
   bring: ['brought', 'bringing', 'brings'],
   give: ['gave', 'given', 'giving', 'gives'],
   rise: ['rose', 'risen', 'rising', 'rises'],
+  set: ['sets', 'setting'],
+  put: ['puts', 'putting'],
+  run: ['ran', 'runs', 'running'],
+  fall: ['fell', 'fallen', 'falls', 'falling'],
+  grow: ['grew', 'grown', 'grows', 'growing'],
+  make: ['made', 'makes', 'making'],
+  keep: ['kept', 'keeps', 'keeping'],
+  hold: ['held', 'holds', 'holding'],
+  seek: ['sought', 'seeks', 'seeking'],
+  undergo: ['underwent', 'undergone', 'undergoes', 'undergoing'],
+  undertake: ['undertook', 'undertaken', 'undertakes', 'undertaking'],
+  withdraw: ['withdrew', 'withdrawn', 'withdraws', 'withdrawing'],
+  forgo: ['forwent', 'forgone', 'forgoes', 'forgoing'],
 };
+
+/**
+ * Accepted forms of a headword: plural / 3rd person, past, -ing (and the irregular ones).
+ * For a phrase the first word is inflected: "phase out" → "phased out", "phasing out".
+ */
+export function wordForms(head: string): string[] {
+  const [w, ...rest] = normalizeWord(head).split(' ');
+  if (!w) return [];
+  const forms = new Set<string>([w]);
+  const add = (x: string) => forms.add(x);
+  if (/(s|x|z|ch|sh|o)$/.test(w)) add(`${w}es`);
+  else if (/[^aeiou]y$/.test(w)) {
+    add(`${w.slice(0, -1)}ies`);
+    add(`${w.slice(0, -1)}ied`);
+  } else add(`${w}s`);
+  if (w.endsWith('ie')) add(`${w.slice(0, -2)}ying`);
+  if (w.endsWith('e')) {
+    add(`${w}d`);
+    if (!w.endsWith('ee')) add(`${w.slice(0, -1)}ing`);
+  } else {
+    add(`${w}ed`);
+    add(`${w}ing`);
+  }
+  // Short final consonant after one vowel doubles: stop → stopped, stopping.
+  if (/[^aeiou][aeiou][bdgmnprt]$/.test(w)) {
+    add(`${w}${w.slice(-1)}ed`);
+    add(`${w}${w.slice(-1)}ing`);
+  }
+  for (const x of IRREGULAR[w] ?? []) add(x);
+  return [...forms].map((f) => [f, ...rest].join(' '));
+}
 
 export function sameWord(token: string, head: string): boolean {
   const t = token.toLowerCase().replace(/’/g, "'");
@@ -141,15 +185,4 @@ export function vocabUsed(text: string, words: Pick<VocabWord, 'id' | 'word'>[])
     if (found) used.push(w.id);
   }
   return used;
-}
-
-/** Share of distinct content words two texts have in common (0..1), for spotting a resubmitted text. */
-export function overlap(a: string, b: string): number {
-  const set = (s: string) => new Set((s.match(TOKEN) ?? []).map(stem).filter((x) => x.length > 3));
-  const A = set(a);
-  const B = set(b);
-  if (!A.size || !B.size) return 0;
-  let common = 0;
-  for (const x of A) if (B.has(x)) common++;
-  return common / Math.min(A.size, B.size);
 }
