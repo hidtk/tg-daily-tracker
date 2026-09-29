@@ -16,7 +16,7 @@ Core loop: user earns "social-media minutes" (Reading tests, sentences) and spen
 ```bash
 npm ci
 npm run typecheck   # shared + web + worker
-npm test            # vitest, apps/worker/test
+npm test            # vitest, apps/worker/test (flows.test.ts runs the Worker code on node:sqlite with all migrations)
 npm run build       # shared + web
 ```
 Run all three before finishing any change.
@@ -29,11 +29,17 @@ Run all three before finishing any change.
 - Secrets (BOT_TOKEN, SESSION_SECRET, CLOUDFLARE_API_TOKEN) live in GitHub Actions secrets — never commit them, never print the NextDNS key.
 
 ## Product rules (keep these)
-- Analytics are automatic: `lib/autolog.ts` `syncDay` recomputes the day entry from reading_attempts (time, ≤60 min/test), vocab_reviews (0.5 min), vocab_sentences (2 min). No manual day logging in the UI.
-- Gate must fail closed: the Shortcut checks «does not contain ALLOW» → Go to Home Screen. Keep the plain-text format.
-- No Telegram message when an app open is blocked.
-- In-app Shortcuts guide (`ShortcutsGuide.tsx`) must match real iOS names (RU: «Получить содержимое URL», тип «Текст», «не содержит», «Перейти „Домой“»).
+- Analytics are automatic: `lib/autolog.ts` `syncDay` recomputes the day entry from reading_attempts (time, ≤60 min/test), vocab_reviews (0.5 min), vocab_sentences (2 min), Writing (time spent) and Speaking (voice length + 1 min). No manual day logging in the UI or the bot (no «Done» buttons, no minute pickers).
+- Game (`shared/src/game.ts`, `worker/src/lib/game.ts`): XP, levels and quests are recomputed from source tables, never stored or typed in. Three daily quests: Reading (key), words, own English (sentence / Writing / Speaking). Streak = days with a counted Reading attempt; shields every 7 days (max 2). Bosses at levels 5/10/15/20/25 (`BOSS_TESTS`), one try a day, answers hidden until a win.
+- Exchange rate: Reading is the main income (5–30 min by band). Words 0.5/answer (≤5/day), sentences 1 (≤5/day), Writing 10 (1/day), Speaking 4 (2/day), chest 10. Without a Reading today at most 10 min of the rest is paid; the rest is held until Reading the same day. Daily cap applies to all earnings.
+- Words: no self-assessment anywhere. Only typed answers checked on the server (`checkTyped`, small typos allowed), each word once a day; hint = no minutes.
+- Reading counts only if ≥ 4 min and ≥ 5 right (anti-rush/anti-guess).
+- Speaking = a voice message to the bot, ≥ 60 s, not forwarded, each `file_unique_id` once.
+- Gate must fail closed: the open check is «does not contain ALLOW» → «Перейти „Домой“». Timer loop in the same automation: every 20 s `?e=tick`, «contains BLOCK» → Home, «contains STOP» → stop. Keep the plain-text formats (`ALLOW <min> <sec>`, `BLOCK 0`, `BLOCK 0 0`, `ALLOW 0 0\nSTOP`).
+- Sessions are charged by real open→close time; overuse becomes a negative balance (debt) that blocks opening. Stale sessions (no close, no heartbeat) are charged only up to the last heartbeat, never into debt.
+- No Telegram message when an app open is blocked. Bot notifications always point to a concrete in-app task (quests, Speaking card, Writing topic).
+- In-app Shortcuts guide (`ShortcutsGuide.tsx`) must match real iOS names (RU: «Получить содержимое URL», тип «Текст», «Если», «не содержит» / «содержит», «Перейти „Домой“», «Повторять», «Ожидать», «Остановить эту команду»).
 - User always keeps AmneziaVPN on → DNS lock only works with NextDNS set inside Amnezia (step 7 in LockSettings).
 
 ## Design system «Элвис»
-Blue palette via CSS tokens in `apps/web/src/styles.css`, Nunito, matte 3D (soft gradients ≤14%, inner bevel, solid edge + diffuse shadow). Mascot SVG in `components/Mascot.tsx` — do not redraw or recolour. No emoji in UI. Buttons: uppercase, verb first. Must work at 360px width; bottom nav hides while the keyboard is open.
+Blue palette via CSS tokens in `apps/web/src/styles.css`, Nunito, matte 3D (soft gradients ≤14%, inner bevel, solid edge + diffuse shadow). Mascot SVG in `components/Mascot.tsx` — do not redraw or recolour; reactions are whole-figure CSS moves (`mood` prop). No emoji in UI. Buttons: uppercase, verb first. Must work at 360px width; bottom nav hides while the keyboard is open.
