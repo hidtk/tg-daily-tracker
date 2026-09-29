@@ -1,4 +1,4 @@
-import type { Activity, AnalyticsResponse, AuthResponse, Entry, Homework, IeltsResponse, Lesson, LessonInput, MockTest, ReadingResult, ReadingSubmit, SentenceState, Settings, SettingsView, StatsResponse, TodayResponse, VocabCard, VocabResponse, WalletResponse, WalletSettings } from '@tracker/shared';
+import type { Activity, AnalyticsResponse, AuthResponse, Entry, GameState, Homework, IeltsResponse, Lesson, LessonInput, MockTest, ReadingResult, ReadingSubmit, SentenceResult, SentenceState, Settings, SettingsView, SpeakingState, StatsResponse, TodayResponse, VocabAnswerResult, VocabResponse, WalletResponse, WalletSettings, WritingResult, WritingState } from '@tracker/shared';
 import { deviceTz, getInitData } from './tg';
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '';
@@ -68,6 +68,12 @@ export const api = {
   wallet: () => request<WalletResponse>('GET', '/api/wallet'),
   saveWallet: (w: Partial<WalletSettings>) => request<WalletResponse>('PUT', '/api/wallet', w),
   submitReading: (body: ReadingSubmit) => request<ReadingResult>('POST', '/api/reading/submit', body),
+  submitBoss: (body: ReadingSubmit) => request<ReadingResult>('POST', '/api/boss/submit', body),
+  game: () => request<GameState>('GET', '/api/game'),
+  writing: () => request<WritingState>('GET', '/api/writing'),
+  startWriting: () => request<WritingState>('POST', '/api/writing/start'),
+  submitWriting: (text: string) => request<WritingResult>('POST', '/api/writing', { text }),
+  speaking: () => request<SpeakingState>('GET', '/api/speaking'),
   refreshLibrary: () => request<WalletResponse>('POST', '/api/reading/refresh'),
   analytics: () => request<AnalyticsResponse>('GET', '/api/analytics'),
   lockConfig: (key: string, profile: string) => request<WalletResponse>('POST', '/api/lock/config', { key, profile }),
@@ -76,7 +82,7 @@ export const api = {
   lockCheck: () => request<{ ok: boolean; error?: string; blocked?: Partial<Record<string, boolean>>; state: string | null; repaired?: boolean }>('GET', '/api/lock/check'),
   lockNow: () => request<WalletResponse & { refunded: number }>('POST', '/api/lock/close'),
   vocab: () => request<VocabResponse>('GET', '/api/vocab'),
-  reviewWord: (word_id: number, ok: boolean) => request<{ card: VocabCard }>('POST', '/api/vocab/review', { word_id, ok }),
+  answerWord: (word_id: number, answer: string, hint: boolean) => request<VocabAnswerResult>('POST', '/api/vocab/answer', { word_id, answer, hint }),
   sentences: () => request<SentenceState>('GET', '/api/sentences'),
-  submitSentence: (word_id: number, text: string) => request<{ ok: boolean; reason?: string; earned: number; state: SentenceState }>('POST', '/api/sentences', { word_id, text }),
+  submitSentence: (word_id: number, text: string) => request<SentenceResult>('POST', '/api/sentences', { word_id, text }),
 };

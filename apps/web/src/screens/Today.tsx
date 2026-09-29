@@ -1,49 +1,65 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { TodayResponse, WalletResponse } from '@tracker/shared';
-import { SKILL_LABEL, addDays, diffDays, isEditable } from '@tracker/shared';
+import type { GameState, TodayResponse, WalletResponse } from '@tracker/shared';
+import { GATE_APP_LABEL, SKILL_LABEL, addDays, diffDays, isEditable } from '@tracker/shared';
 import { api, ApiError } from '../api';
 import { haptic } from '../tg';
-import { Section, fmtDate } from '../components/ui';
+import { Section, Sheet, fmtDate } from '../components/ui';
+import { BossCard, HowItWorks, Ladder, LevelCard, QuestList, StreakCard, mascotLine, type GoTarget } from '../components/Game';
 import { useLang, useT } from '../i18n';
 import { Icon, Mascot } from '../components/Mascot';
 
-/** Social-media minutes: the first thing on the home screen. */
-function MinutesCard({ onEarn }: { onEarn?: () => void }) {
+/** Social-media minutes: the first thing on the home screen. Shows a debt, minutes waiting for Reading and a running session. */
+function MinutesCard({ g, onEarn, onHow }: { g: GameState | null; onEarn?: () => void; onHow: () => void }) {
   const t = useT();
   const [w, setW] = useState<WalletResponse | null>(null);
   useEffect(() => {
     api.wallet().then(setW).catch(() => undefined);
   }, []);
   if (!w) return <div className="section minutes-card"><span className="spinner" style={{ margin: '18px auto' }} /></div>;
+  const debt = w.balance < 0;
   const bal = Math.floor(w.balance);
   const open = w.lock.state === 'open';
+  const held = g?.minutes.held ?? 0;
   return (
     <div className="section minutes-card">
       <div className="row between" style={{ alignItems: 'flex-end' }}>
         <div>
-          <div className="label" style={{ marginBottom: 4 }}>{t('Social-media minutes')}</div>
-          <div className="balance">{bal}<span>{t('min')}</span></div>
+          <div className="label" style={{ marginBottom: 4 }}>{debt ? t('Debt') : t('Social-media minutes')}</div>
+          <div className={`balance${debt ? ' debt' : ''}`}>{debt ? `−${Math.ceil(-w.balance)}` : bal}<span>{t('min')}</span></div>
         </div>
         <span style={{ color: bal < 1 ? 'var(--ink-muted)' : 'var(--primary)' }}>{Icon.gems(40)}</span>
       </div>
       <div className="muted small" style={{ marginTop: 6 }}>
-        {open
-          ? t('Open · {n} min left', { n: w.lock.remaining_min })
-          : bal < 1
-            ? t('Social media is locked. Pass a Reading test to open it.')
-            : t('Earned today {a} · {b} more possible', { a: w.earned_today, b: w.earn_left })}
+        {w.session
+          ? t('In {app} now · {n} min left', { app: GATE_APP_LABEL[w.session.app], n: Math.floor(w.session.seconds_left / 60) })
+          : open
+            ? t('Open · {n} min left', { n: w.lock.remaining_min })
+            : debt
+              ? t('Time used beyond the paid minutes. The next earnings pay it back first; until then social media stays locked.')
+              : bal < 1
+                ? t('Social media is locked. Pass a Reading test to open it.')
+                : t('Earned today {a} of {b} min', { a: g?.minutes.earned ?? w.earned_today, b: w.daily_earn_cap })}
       </div>
+      {held > 0 && <div className="held-chip">{Icon.lock(16)} {t('{n} min wait for today’s Reading', { n: held })}</div>}
       {onEarn && <button className="btn solid block" style={{ marginTop: 12 }} onClick={() => { haptic.tap(); onEarn(); }}>{bal < 1 ? t('Earn minutes') : t('Earn more')}</button>}
+      <button className="btn link" style={{ marginTop: 10 }} onClick={() => { haptic.tap(); onHow(); }}>{t('How minutes are earned')}</button>
     </div>
   );
 }
 
-export function Today({ isNew, onEarn }: { isNew: boolean; onEarn?: () => void }) {
+export function Today({ isNew, go }: { isNew: boolean; go: (to: GoTarget) => void }) {
   const t = useT();
   const { lang } = useLang();
   const [date, setDate] = useState<string | undefined>(undefined);
   const [data, setData] = useState<TodayResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [g, setG] = useState<GameState | null>(null);
+  const [how, setHow] = useState(false);
+  const [ladder, setLadder] = useState(false);
+
+  useEffect(() => {
+    api.game().then(setG).catch(() => undefined);
+  }, []);
 
   const load = useCallback(async (d?: string) => {
     setError(null);
@@ -87,10 +103,20 @@ export function Today({ isNew, onEarn }: { isNew: boolean; onEarn?: () => void }
           : <>{t('Target')} <b>{data.target.toFixed(1)}</b> · {t('set the exam date in Settings')}</>}
       </div>
 
-      {cur === today && <MinutesCard onEarn={onEarn} />}
+      {cur === today && <MinutesCard g={g} onEarn={() => go('reading')} onHow={() => setHow(true)} />}
 
-      {isNew && (
-        <Mascot size={88} message={t('Welcome. Each morning you get five words and a task. Everything you do here is logged by itself — nothing to fill in. Lessons, homework and the exam date are in Settings.')} />
+      {cur === today && g && (() => {
+        const line = mascotLine(g, t);
+        return <Mascot size={80} mood={line.mood} message={isNew ? t('Welcome. Earn social-media minutes with Reading, words and your own English. Three quests a day, levels, a streak and bosses — everything is counted by itself.') : line.text} />;
+      })()}
+
+      {cur === today && g && (
+        <>
+          <QuestList g={g} go={go} />
+          <LevelCard g={g} onLadder={() => setLadder(true)} />
+          <StreakCard g={g} />
+          <BossCard g={g} onFight={() => go('boss')} />
+        </>
       )}
 
       {(data.lessons_today.length > 0 || data.homeworks.length > 0) && (
@@ -136,10 +162,17 @@ export function Today({ isNew, onEarn }: { isNew: boolean; onEarn?: () => void }
             )}
           </>
         ) : (
-          <div className="muted small">{cur === today ? t('Nothing yet. A Reading test, word review or sentence counts the day by itself.') : t('Nothing was done this day.')}</div>
+          <div className="muted small">{cur === today ? t('Nothing yet. Any Reading test, word, sentence, Writing or Speaking counts the day by itself.') : t('Nothing was done this day.')}</div>
         )}
-        <div className="hint">{t('Logged automatically: Reading tests by time spent, word reviews, sentences. Nothing to enter by hand.')}</div>
+        <div className="hint">{t('Logged automatically: Reading and Writing by time spent, words, sentences, Speaking by the voice length. Nothing to enter by hand.')}</div>
       </Section>
+
+      {how && <HowItWorks onClose={() => setHow(false)} />}
+      {ladder && g && (
+        <Sheet title={t('Level ladder')} onClose={() => setLadder(false)}>
+          <Ladder g={g} />
+        </Sheet>
+      )}
     </div>
   );
 }

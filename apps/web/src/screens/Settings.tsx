@@ -119,7 +119,7 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
               {[3, 5, 8, 10].map((n) => <button key={n} className={`chip ${s.vocab_per_day === n ? 'on' : ''}`} onClick={() => { haptic.select(); patch({ vocab_per_day: n }); }}>{n}</button>)}
             </div>
           )}
-          <Toggle label={t('Task in the morning')} sub={t('Mon Writing 2 · Tue Speaking · Wed Reading · Thu Listening · Fri Writing 1 · Sat Grammar · Sun Review')} on={s.ielts_daily_task} onChange={(v) => patch({ ielts_daily_task: v })} />
+          <Toggle label={t('Quests in the morning')} sub={t('The day’s quests, a Speaking card and a Writing topic')} on={s.ielts_daily_task} onChange={(v) => patch({ ielts_daily_task: v })} />
           <Toggle label={t('Weekly summary on Sunday')} on={s.weekly_summary} onChange={(v) => patch({ weekly_summary: v })} />
         </div>
         {s.weekly_summary && (
@@ -127,7 +127,7 @@ export function SettingsScreen({ initial }: { initial: SettingsView }) {
             <Field label={t('Sunday, at')}><input type="time" step={300} value={s.weekly_time} onChange={(e) => patch({ weekly_time: e.target.value })} /></Field>
           </div>
         )}
-        <div className="hint">{t('The evening message is skipped if the day is already logged.')}</div>
+        <div className="hint">{t('The evening message comes only if a quest is still open.')}</div>
       </Section>
 
       <Section label={t('Lessons')}>

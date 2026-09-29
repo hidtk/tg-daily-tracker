@@ -453,3 +453,90 @@ select { padding-right: 34px; background-image: linear-gradient(45deg, transpare
 
 .vpn-steps { margin: 6px 0 8px; padding-left: 20px; }
 .vpn-steps li { margin: 4px 0; }
+
+/* ==================================================================
+   Game layer: level, streak, quests, chest, boss, ladder, typed words.
+   Same matte 3D language: tile surfaces, solid bottom edge, no gloss.
+================================================================== */
+.level-badge { flex: none; width: 52px; height: 52px; border-radius: var(--radius-lg); display: grid; place-items: center; font: 900 26px/1 var(--font-round); color: var(--on-primary); background: var(--primary); background-image: var(--matte-solid); box-shadow: var(--bevel-solid), 0 3px 0 var(--primary-edge); }
+.xp-bar { height: 14px; margin-top: var(--space-3); border-radius: var(--radius-pill); background: var(--blue-200); box-shadow: inset 0 2px 3px rgba(11, 31, 63, 0.14); overflow: hidden; }
+.xp-bar i { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--primary); background-image: linear-gradient(180deg, rgba(255,255,255,.18), rgba(0,0,0,.10)); box-shadow: inset 0 -2px 2px rgba(0,0,0,.12); transition: width 0.4s ease; }
+
+.streak-num { font: 900 30px/1 var(--font-round); color: var(--ink); }
+.streak-num span { display: block; font: 800 14px/18px var(--font-round); color: var(--ink-muted); }
+.streak-off { color: var(--disabled-ink); opacity: 0.6; }
+.streak-on { color: var(--streak); }
+.week-dots { display: flex; gap: 5px; }
+.week-dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--blue-200); box-shadow: inset 0 1px 2px rgba(11, 31, 63, 0.14); }
+.week-dots i.on { background: var(--streak); box-shadow: 0 2px 0 #c98200; }
+.week-dots i.today { background: transparent; border: 2px dashed var(--border-strong); }
+
+.quest, .task-row { display: flex; align-items: flex-start; gap: var(--space-3); width: 100%; text-align: left; padding: var(--space-3) 0; }
+.quest + .quest, .task-row + .task-row { border-top: 2px solid var(--border); }
+.quest-icon { flex: none; width: 40px; height: 40px; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--primary); background: var(--selected-bg); border: 2px solid var(--border); }
+.quest.done .quest-icon { color: var(--on-success); background: var(--success); border-color: transparent; box-shadow: 0 2px 0 var(--success-edge); }
+.quest-title { display: block; font: 800 16px/22px var(--font-round); }
+.quest.done .quest-title { color: var(--success-ink); }
+.quest-sub { display: block; font: 600 14px/19px var(--font-round); color: var(--ink-muted); margin-top: 2px; }
+.quest-bar { display: block; height: 8px; margin-top: 6px; border-radius: var(--radius-pill); background: var(--blue-200); overflow: hidden; }
+.quest-bar i { display: block; height: 100%; background: var(--primary); border-radius: var(--radius-pill); }
+.quest.done .quest-bar i { background: var(--success); }
+.quest .arrow, .task-row .arrow { color: var(--primary); font-weight: 800; margin-top: 8px; }
+.chest-row { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-tint); border: 2px dashed var(--border-strong); color: var(--ink-muted); }
+.chest-row.open { border-style: solid; border-color: var(--streak); background: color-mix(in srgb, var(--streak) 12%, var(--surface-raised)); color: var(--ink); }
+.chest-icon { color: var(--streak); display: inline-flex; }
+.chest-row:not(.open) .chest-icon { color: var(--disabled-ink); }
+
+.boss-card.ready { border-color: var(--primary); }
+.boss-icon { flex: none; width: 48px; height: 48px; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--disabled-ink); background: var(--disabled-bg); }
+.boss-card.ready .boss-icon { color: var(--streak); background: var(--navy-900); box-shadow: 0 3px 0 #000; }
+.boss-title { font: 800 18px/24px var(--font-round); }
+
+.ladder { display: flex; flex-direction: column; gap: var(--space-3); }
+.ladder-stage { padding: var(--space-3); border-radius: var(--radius-lg); background: var(--surface-raised); border: 2px solid var(--border); opacity: 0.65; }
+.ladder-stage.reached { opacity: 1; box-shadow: 0 2px 0 var(--border-strong); }
+.ladder-name { font: 800 14px/18px var(--font-round); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: var(--space-2); }
+.ladder-steps { display: flex; flex-direction: column; gap: 6px; }
+.step { display: flex; align-items: center; gap: var(--space-2); padding: 6px 10px; border-radius: var(--radius-md); background: var(--surface-tint); font-weight: 700; }
+.step-n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--blue-200); color: var(--ink); font: 800 13px/1 var(--font-round); }
+.step.past .step-n { background: var(--primary); color: var(--on-primary); }
+.step.current { background: var(--selected-bg); border: 2px solid var(--primary); }
+.step.current .step-n { background: var(--streak); color: var(--navy-900); }
+.step.boss { background: color-mix(in srgb, var(--navy-900) 8%, var(--surface-tint)); }
+.step-boss { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--ink-muted); }
+.step-you { margin-left: auto; font: 800 12px/1 var(--font-round); text-transform: uppercase; color: var(--primary); }
+
+.celebrate .level-big { font: 900 72px/1 var(--font-round); color: var(--primary); margin-top: var(--space-2); }
+.celebrate .chest-icon { display: inline-flex; margin-top: var(--space-2); }
+.rate-table { display: flex; flex-direction: column; }
+.rate-table > div { display: flex; justify-content: space-between; gap: var(--space-3); padding: 7px 0; font-size: 15px; }
+.rate-table > div + div { border-top: 2px solid var(--border); }
+.rate-table b { text-align: right; white-space: nowrap; }
+
+.balance.debt { color: var(--error); }
+.held-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: var(--space-2); padding: 5px 10px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--streak) 16%, var(--surface-raised)); color: var(--ink); font: 800 13px/18px var(--font-round); }
+.ok-ink { color: var(--success-ink); font-weight: 800; }
+
+/* Typed word review */
+.typed-card { padding: 4px 0; }
+.prompt-ru { font: 800 24px/30px var(--font-round); }
+.cloze { font: 700 19px/27px var(--font-round); }
+.letters { display: flex; flex-wrap: wrap; gap: 4px; margin: var(--space-3) 0; }
+.letters i { width: 18px; height: 24px; border-bottom: 3px solid var(--border-strong); font: 800 16px/24px var(--font-round); font-style: normal; text-align: center; color: var(--primary); }
+.answer-box { padding: var(--space-3); border-radius: var(--radius-md); border: 2px solid var(--border); background: var(--surface-tint); }
+.answer-box.ok { border-color: var(--success); background: var(--success-bg); color: var(--success-ink); }
+.answer-box.bad { border-color: var(--error); background: var(--error-bg); color: var(--error-ink); }
+.answer-box .example, .answer-box .small { color: inherit; }
+.card-points { margin: 4px 0 0; padding-left: 20px; }
+.card-points li { margin: 2px 0; }
+.btn svg { vertical-align: -3px; margin-right: 6px; }
+.sc-scheme { margin: var(--space-3) 0 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-tint); border: 2px solid var(--border); font: 600 11px/17px ui-monospace, Menlo, monospace; white-space: pre; overflow-x: auto; color: var(--ink); }
+
+/* Elvis reactions: the whole figure moves, the drawing never changes. */
+@keyframes el-hop { 0%, 100% { transform: translateY(0); } 30% { transform: translateY(-10px); } 55% { transform: translateY(0); } 70% { transform: translateY(-4px); } }
+@keyframes el-sway { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-4deg); } }
+@keyframes el-tilt { 0%, 100% { transform: rotate(0); } 40% { transform: rotate(6deg); } 70% { transform: rotate(3deg); } }
+.el-mascot.mood-cheer .el-mascot-pad { animation: el-hop 0.9s ease-out 2; transform-origin: 50% 100%; }
+.el-mascot.mood-wait .el-mascot-pad { animation: el-sway 2.4s ease-in-out infinite; transform-origin: 50% 100%; }
+.el-mascot.mood-think .el-mascot-pad { animation: el-tilt 1s ease-out 1; transform-origin: 50% 100%; }
+@media (prefers-reduced-motion: reduce) { .el-mascot .el-mascot-pad { animation: none !important; } }
