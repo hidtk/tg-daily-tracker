@@ -9,6 +9,8 @@ import { handleWebhook } from './bot/webhook';
 import { runCron } from './bot/cron';
 import { HttpError, json } from './lib/http';
 
+const SHORTCUT_NAMES = { 'elvis-open': 'Элвис вход', 'elvis-close': 'Элвис выход' } as const;
+
 export default {
   async fetch(req, rawEnv): Promise<Response> {
     const url = new URL(req.url);
@@ -35,6 +37,17 @@ export default {
       if (!user?.nextdns_profile || !user.lock_password) return new Response('not found', { status: 404 });
       return new Response(mobileconfig(user.nextdns_profile, `IELTS-${user.tg_id}`, user.lock_password), {
         headers: { 'content-type': 'application/x-apple-aspen-config; charset=utf-8', 'content-disposition': 'attachment; filename="ielts-lock.mobileconfig"', 'cache-control': 'no-store' },
+      });
+    }
+
+    // Ready-made iOS Shortcuts (signed files in the Mini App assets): the file name becomes the shortcut's name.
+    const sc = url.pathname.match(/^\/shortcuts\/(elvis-open|elvis-close)\.shortcut$/);
+    if (sc && req.method === 'GET') {
+      const res = await env.ASSETS.fetch(new Request(new URL(`/shortcuts/${sc[1]}.shortcut`, url.origin)));
+      if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) return new Response('not found', { status: 404 });
+      const name = SHORTCUT_NAMES[sc[1] as keyof typeof SHORTCUT_NAMES];
+      return new Response(res.body, {
+        headers: { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${sc[1]}.shortcut"; filename*=UTF-8''${encodeURIComponent(name)}.shortcut`, 'cache-control': 'no-cache' },
       });
     }
 

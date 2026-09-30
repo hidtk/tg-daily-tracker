@@ -1,6 +1,6 @@
 // Builds the two ready-made iOS Shortcuts («Элвис вход», «Элвис выход») as unsigned XML plists.
-// iOS imports only signed files: .github/workflows/shortcuts.yml signs them on a macOS runner
-// (`shortcuts sign --mode anyone`) and commits the result to apps/web/public/shortcuts/.
+// iOS imports only signed files: sign each on a Mac signed into iCloud
+// (`plutil -convert binary1` + `shortcuts sign --mode anyone`) into apps/web/public/shortcuts/.
 // No personal data inside: on import the Shortcuts app asks for the personal link (Import Question).
 //
 //   node scripts/shortcuts/build.mjs <out dir>
@@ -16,11 +16,13 @@ const id = (n) => `E1715000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const QUESTION = 'Вставь личную ссылку из Элвиса: Настройки → Блокировка соцсетей → Пошаговая инструкция → «Скопировать». Paste your personal link from Elvis.';
 const PLACEHOLDER = 'ВСТАВЬ ССЫЛКУ ИЗ ЭЛВИСА';
 
+/** U+FFFC marks where a variable sits inside a text field. */
+const OBJ = '\uFFFC';
 const action = (identifier, params = {}) => ({ WFWorkflowActionIdentifier: identifier, WFWorkflowActionParameters: params });
 const output = (uuid, name) => ({ Type: 'ActionOutput', OutputUUID: uuid, OutputName: name });
 /** The personal link + a query string, e.g. `<link>?e=tick`. */
-const linkWith = (textUuid, query) => ({
-  Value: { string: `￼${query}`, attachmentsByRange: { '{0, 1}': output(textUuid, 'Text') } },
+const linkWith = (linkUuid, query) => ({
+  Value: { string: `${OBJ}${query}`, attachmentsByRange: { '{0, 1}': output(linkUuid, 'Updated Text') } },
   WFSerializationType: 'WFTextTokenString',
 });
 /** "Contents of URL" read as text, so the If can use contains / does not contain. */
@@ -39,6 +41,15 @@ const ifEnd = (group, uuid) => action('is.workflow.actions.conditional', { Group
 const get = (uuid, url) => action('is.workflow.actions.downloadurl', { UUID: uuid, WFURL: url, WFHTTPMethod: 'GET' });
 const home = () => action('is.workflow.actions.returntohomescreen');
 const linkText = (uuid) => action('is.workflow.actions.gettext', { UUID: uuid, WFTextActionText: PLACEHOLDER });
+/** Any of the guide's links works: spaces and everything from "?" are cut off, leaving `…/gate/<key>`. */
+const cleanLink = (uuid, textUuid) => action('is.workflow.actions.text.replace', {
+  UUID: uuid,
+  WFInput: { Value: { string: OBJ, attachmentsByRange: { '{0, 1}': output(textUuid, 'Text') } }, WFSerializationType: 'WFTextTokenString' },
+  WFReplaceTextFind: String.raw`\s+|\?.*`,
+  WFReplaceTextReplace: '',
+  WFReplaceTextRegularExpression: true,
+  WFReplaceTextCaseSensitive: false,
+});
 
 function shortcut(actions, glyph, color) {
   return {
@@ -62,10 +73,11 @@ function shortcut(actions, glyph, color) {
  *   no ALLOW (no minutes or no answer) → Home; then every 20 s ask the timer: BLOCK → Home, STOP → stop.
  */
 function openShortcut() {
-  const [link, first, tick] = [id(1), id(2), id(3)];
+  const [text, link, first, tick] = [id(1), id(4), id(2), id(3)];
   const [g1, g2, g3, g4] = [id(11), id(12), id(13), id(14)];
   return shortcut([
-    linkText(link),
+    linkText(text),
+    cleanLink(link, text),
     get(first, linkWith(link, '?app=any&e=open')),
     ifStart(g1, asText(first), NOT_CONTAINS, 'ALLOW'),
     home(),
@@ -86,8 +98,8 @@ function openShortcut() {
 
 /** «Элвис выход» — the "app closed" automation runs it: the server charges the real time. */
 function closeShortcut() {
-  const link = id(31);
-  return shortcut([linkText(link), get(id(32), linkWith(link, '?app=any&e=close'))], 59511, 4282601983);
+  const [text, link] = [id(31), id(33)];
+  return shortcut([linkText(text), cleanLink(link, text), get(id(32), linkWith(link, '?app=any&e=close'))], 59511, 4282601983);
 }
 
 // --- a tiny XML plist writer (no dependencies) ---
