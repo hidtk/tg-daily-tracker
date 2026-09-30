@@ -44,6 +44,7 @@ GET  /api/progress           достижения, неделя (учёба из
 GET  /api/wallet, PUT /api/wallet   приложения, лимиты, ссылка gate, состояние NextDNS
 POST /api/lock/config, DELETE /api/lock/config, POST /api/lock/unlock {minutes}, POST /api/lock/close, GET /api/lock/check
 GET  /dns/:key.mobileconfig  профиль DNS для iPhone
+GET  /demo                   автопоказ приложения по шагам (статика Mini App, без входа и без API)
 GET  /gate/:key?app=any&e=open  → «ALLOW <мин> <сек>» (сессия началась) или «BLOCK 0»
 GET  /gate/:key?e=tick       каждые 20 с из цикла «Команд» → «ALLOW <мин> <сек осталось>», «BLOCK 0 0» (на экран «Домой»),
                              «ALLOW 0 0 / STOP» (сессии нет — цикл завершается)

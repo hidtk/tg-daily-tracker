@@ -193,8 +193,7 @@ const RU: Record<string, string> = {
     'Без NextDNS: «Команды» закрывают {apps}, когда минут нет, а таймер выкидывает на экран «Домой», когда оплаченные минуты кончились. Настройка — около 10 минут, один раз.',
 
   // onboarding
-  'A short video from Elvis will be here soon.': 'Здесь скоро будет короткое видео от Элвиса.',
-  'tap here': 'нажми сюда', 'task': 'задание', 'social media': 'соцсети', 'social media open': 'соцсети открыты', 'Home Screen': 'экран «Домой»',
+  'tap here': 'нажми сюда', 'social media open': 'соцсети открыты', 'Home Screen': 'экран «Домой»',
   'Study earns social media': 'Учёба открывает соцсети',
   'Do small IELTS tasks and get minutes. Minutes open Instagram, TikTok, YouTube and VK.': 'Делай небольшие задания по IELTS и получай минуты. Минуты открывают Instagram, TikTok, YouTube и VK.',
   'Minutes are earned in the Shop': 'Минуты зарабатываются в Магазине',
@@ -205,6 +204,25 @@ const RU: Record<string, string> = {
   'About 10 minutes: two automations in the Shortcuts app. The step-by-step guide is in Settings → Social-media lock. With AmneziaVPN, NextDNS goes inside Amnezia (step 7).': 'Около 10 минут: две автоматизации в приложении «Команды». Пошаговая инструкция — в Настройках → Блокировка соцсетей. С AmneziaVPN NextDNS прописывается внутри Amnezia (шаг 7).',
   'Shortcuts': 'Команды', 'Automation': 'Автоматизация', 'Gallery': 'Галерея', 'Open the guide': 'Открыть инструкцию',
   'Checks and achievements': 'Проверка и достижения',
+
+  // demo (step-by-step show)
+  'No minutes — Instagram, TikTok, YouTube and VK are closed.': 'Минут нет — Instagram, TikTok, YouTube и VK закрыты.',
+  'Pick a task in the Shop.': 'Выбери задание в Магазине.',
+  'Pick a task: the card says how long it takes and how many minutes it pays.': 'Выбираешь задание: на карточке написано, сколько оно займёт и сколько минут даст.',
+  'Answer the questions — usually 5 to 10 minutes.': 'Отвечаешь на вопросы — обычно 5–10 минут.',
+  'The server checks by the answer key and pays the minutes at once.': 'Сервер проверяет по ключу и сразу начисляет минуты.',
+  'Writing and Speaking are checked point by point: you see what counted and what to fix.': 'Writing и Speaking проверяются по пунктам: видно, что засчитано и что исправить.',
+  'Minutes open social media.': 'Минуты открывают соцсети.',
+  'Social media is open while there are minutes.': 'Соцсети открыты, пока есть минуты.',
+  'Time is up — the iPhone sends you to the Home Screen by itself.': 'Время вышло — iPhone сам выкидывает на экран «Домой».',
+  'Time is up — the Home Screen': 'Время вышло — экран «Домой»',
+  'Achievements give bonus minutes; the rule is written under each one.': 'Достижения дают бонус-минуты, условие написано под каждым.',
+  '{n} min left': 'осталось {n} мин', 'Step {n}': 'Шаг {n}', 'Play': 'Смотреть', 'Pause': 'Пауза',
+  'Elvis · IELTS': 'Элвис · IELTS',
+  'Study earns social media: small IELTS tasks give minutes, minutes open Instagram, TikTok, YouTube and VK. Here is how it looks.': 'Учёба открывает соцсети: небольшие задания по IELTS дают минуты, минуты открывают Instagram, TikTok, YouTube и VK. Вот как это выглядит.',
+  'Every task shows its time and its price in minutes.': 'У каждого задания видно время и цену в минутах.',
+  'Every answer is checked on the server: you see what counted and what to fix.': 'Каждый ответ проверяется на сервере: видно, что засчитано и что исправить.',
+  'When the minutes run out, the iPhone lock sends you to the Home Screen.': 'Когда минуты кончаются, блокировка на iPhone выкидывает на экран «Домой».',
   'Every task is checked: you see what counted and what to fix. Achievements give bonus minutes — the rule is written under each one.': 'Каждое задание проверяется: видно, что засчитано и что исправить. Достижения дают бонус-минуты — условие написано под каждым.',
 };
 
