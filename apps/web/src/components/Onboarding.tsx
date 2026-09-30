@@ -5,35 +5,16 @@ import { haptic } from '../tg';
 import { useT } from '../i18n';
 import { Icon, Mascot } from './Mascot';
 import { ShortcutsGuide } from './ShortcutsGuide';
+import { Pointer } from './Pointer';
+import { DemoReel } from './DemoReel';
 
 const VIDEO = `${import.meta.env.BASE_URL}onboarding/elvis-intro.mp4`;
 const POSTER = `${import.meta.env.BASE_URL}onboarding/elvis-poster.svg`;
 
-/** A curved arrow with a label that points at a real button in the mock-up. */
-function Pointer({ label, dir = 'down' }: { label: string; dir?: 'down' | 'left' | 'up' }) {
-  return (
-    <span className={`pointer ${dir}`} aria-hidden="true">
-      <span className="pointer-label">{label}</span>
-      <svg viewBox="0 0 48 40" width="44" height="36">
-        <path d="M6 4 C 10 22, 22 30, 38 30" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-        <path d="M30 22 L 40 30 L 30 37" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
-  );
-}
-
-/** Intro video from Elvis; until the file exists (or if it fails) a poster with the mascot stands in, without errors. */
+/** Intro video from Elvis; until the file exists (or if it fails) the step-by-step demo plays instead, without errors. */
 function IntroVideo() {
-  const t = useT();
   const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <div className="onb-video placeholder">
-        <Mascot size={84} />
-        <div className="small muted">{t('A short video from Elvis will be here soon.')}</div>
-      </div>
-    );
-  }
+  if (failed) return <DemoReel compact />;
   return <video className="onb-video" src={VIDEO} poster={POSTER} loop muted playsInline controls preload="metadata" onError={() => setFailed(true)} />;
 }
 
@@ -101,7 +82,6 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       pic: (
         <>
           <IntroVideo />
-          <Flow items={[<span className="flow-chip">{Icon.book(18)} {t('task')}</span>, <span className="flow-chip">+5 {t('min')}</span>, <span className="flow-chip">{Icon.gems(18)} {t('social media')}</span>]} />
         </>
       ),
     },
