@@ -2,6 +2,7 @@ import type { ShopTask } from '@tracker/shared';
 import { haptic } from '../tg';
 import { useT } from '../i18n';
 import { Icon } from './Mascot';
+import { Target } from './Pointer';
 
 type T = ReturnType<typeof useT>;
 
@@ -70,7 +71,7 @@ function statusText(task: ShopTask, t: T): string | null {
 }
 
 /** A shop card: what it is, time, difficulty and the deal in plain words. */
-export function TaskCard({ task, onStart }: { task: ShopTask; onStart: (task: ShopTask) => void }) {
+export function TaskCard({ task, onStart, hint }: { task: ShopTask; onStart: (task: ShopTask) => void; hint?: string }) {
   const t = useT();
   const doable = task.status === 'open' || task.status === 'retry';
   const status = statusText(task, t);
@@ -95,7 +96,10 @@ export function TaskCard({ task, onStart }: { task: ShopTask; onStart: (task: Sh
       <div className="task-foot">
         <Level level={task.level} />
         {doable ? (
-          <button className="btn solid sm" onClick={() => { haptic.tap(); onStart(task); }}>{task.status === 'retry' ? t('Retry') : t('Start')}</button>
+          (() => {
+            const btn = <button className="btn solid sm" onClick={() => { haptic.tap(); onStart(task); }}>{task.status === 'retry' ? t('Retry') : t('Start')}</button>;
+            return hint ? <Target label={hint} side="bottom" align="end">{btn}</Target> : btn;
+          })()
         ) : (
           <span className={`task-status s-${task.status}`}>{status}</span>
         )}

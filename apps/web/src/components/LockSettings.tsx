@@ -4,9 +4,10 @@ import { api, ApiError } from '../api';
 import { haptic, tg } from '../tg';
 import { useLang, useT } from '../i18n';
 import { useToast } from './Toast';
-import { Field, Section } from './ui';
+import { Field, Section, Sheet } from './ui';
 import { Icon } from './Mascot';
 import { ShortcutsGuide } from './ShortcutsGuide';
+import { LockReel } from './LockReel';
 
 const ALL_APPS: GateApp[] = ['instagram', 'tiktok', 'youtube', 'vk'];
 const CHALLENGE_SIZE = 3;
@@ -326,6 +327,7 @@ export function LockSettings() {
   const [challenge, setChallenge] = useState(false);
   const [w, setW] = useState<WalletResponse | null>(null);
   const [guide, setGuide] = useState(false);
+  const [show, setShow] = useState(false);
 
   useEffect(() => {
     if (open && !w) api.wallet().then(setW).catch((e: unknown) => toast(e instanceof ApiError ? e.message : t('Could not load')));
@@ -352,7 +354,15 @@ export function LockSettings() {
                 {ru ? 'Настройка «Команд» на iPhone, NextDNS, какие приложения закрывать и лимиты минут. Доступ — через перевод трёх слов.' : 'Shortcuts on iPhone, NextDNS, which apps to lock and minute limits. Access takes translating three words.'}
               </p>
             </div>
-            <button className="btn solid" style={{ marginTop: 12 }} onClick={() => { haptic.tap(); setChallenge(true); }}>{ru ? 'Открыть настройки' : 'Open settings'}</button>
+            <div className="row" style={{ gap: 12, marginTop: 12 }}>
+              <button className="btn solid" onClick={() => { haptic.tap(); setChallenge(true); }}>{ru ? 'Открыть настройки' : 'Open settings'}</button>
+              <button className="btn" onClick={() => { haptic.tap(); setShow(true); }}>{t('Show how to set it up')}</button>
+            </div>
+            {show && (
+              <Sheet title={t('How to turn on the lock')} onClose={() => setShow(false)}>
+                <LockReel />
+              </Sheet>
+            )}
           </>
         ) : (
           <WordChallenge onPass={() => setOpen(true)} />

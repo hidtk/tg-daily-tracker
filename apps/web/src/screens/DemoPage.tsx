@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { DemoReel } from '../components/DemoReel';
+import { LockReel } from '../components/LockReel';
 import { LangContext, readStoredLang, storeLang, useT, type Lang } from '../i18n';
 
 function Content() {
@@ -14,6 +15,9 @@ function Content() {
         <li>{t('Every answer is checked on the server: you see what counted and what to fix.')}</li>
         <li>{t('When the minutes run out, the iPhone lock sends you to the Home Screen.')}</li>
       </ul>
+      <h2 style={{ marginTop: 28 }}>{t('How to turn on the lock')}</h2>
+      <p className="muted">{t('Once, about 10 minutes: two automations in the iPhone Shortcuts app. Without them social media opens freely.')}</p>
+      <LockReel />
     </div>
   );
 }
