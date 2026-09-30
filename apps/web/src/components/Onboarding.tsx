@@ -5,7 +5,8 @@ import { haptic } from '../tg';
 import { useT } from '../i18n';
 import { Icon, Mascot } from './Mascot';
 import { ShortcutsGuide } from './ShortcutsGuide';
-import { Pointer } from './Pointer';
+import { Target } from './Pointer';
+import { LockReel } from './LockReel';
 import { DemoReel } from './DemoReel';
 
 const VIDEO = `${import.meta.env.BASE_URL}onboarding/elvis-intro.mp4`;
@@ -28,13 +29,10 @@ function MockNav({ active }: { active: 'home' | 'shop' | 'progress' | 'settings'
   ];
   return (
     <div className="mock-nav">
-      {tabs.map((x) => (
-        <span key={x.id} className={x.id === active ? 'on' : ''}>
-          {x.icon}
-          <span>{x.label}</span>
-          {x.id === active && <Pointer label={t('tap here')} />}
-        </span>
-      ))}
+      {tabs.map((x) => {
+        const inner = <span className={`mock-tab${x.id === active ? ' on' : ''}`}>{x.icon}<span>{x.label}</span></span>;
+        return <span key={x.id}>{x.id === active ? <Target label={t('tap here')} side="top">{inner}</Target> : inner}</span>;
+      })}
     </div>
   );
 }
@@ -97,8 +95,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
             </div>
             <div className="small muted">{t('Do it in ~{m} min → get up to {p} min of social media', { m: 8, p: 5 })}</div>
             <div className="mock-btn-row">
-              <span className="mock-btn">{t('Start')}</span>
-              <Pointer label={t('tap here')} dir="left" />
+              <Target label={t('tap here')} side="right"><span className="mock-btn">{t('Start')}</span></Target>
             </div>
           </div>
           <MockNav active="shop" />
@@ -117,21 +114,13 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     },
     {
       title: t('Set up the lock on the iPhone once'),
-      text: t('About 10 minutes: two automations in the Shortcuts app. The step-by-step guide is in Settings → Social-media lock. With AmneziaVPN, NextDNS goes inside Amnezia (step 7).'),
+      text: t('About 10 minutes, once: two automations in the Shortcuts app. Watch the steps, then open the guide with your links.'),
       pic: (
-        <div className="mock">
-          <div className="mock-phone">
-            <div className="mock-phone-title">{t('Shortcuts')}</div>
-            <div className="mock-phone-plus">+</div>
-            <Pointer label={t('tap here')} dir="up" />
-            <div className="mock-phone-tabs">
-              <span>{t('Shortcuts')}</span>
-              <span className="on">{t('Automation')}</span>
-              <span>{t('Gallery')}</span>
-            </div>
-          </div>
-          <button className="btn solid block" style={{ marginTop: 12 }} onClick={() => void openGuide()}>{t('Open the guide')}</button>
-        </div>
+        <>
+          <LockReel compact />
+          <button className="btn solid block" onClick={() => void openGuide()}>{t('Open the guide')}</button>
+          <div className="hint" style={{ marginTop: 0 }}>{t('AmneziaVPN always on? Also put NextDNS inside Amnezia — step 7 in Settings → Social-media lock.')}</div>
+        </>
       ),
     },
     {
