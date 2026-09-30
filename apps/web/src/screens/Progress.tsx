@@ -10,13 +10,17 @@ import { weekdayMon0 } from '@tracker/shared';
 const REASON: Record<string, string> = {
   reading: 'Reading',
   words: 'Words',
+  quiz: 'Quick test',
   sentence: 'Sentence',
   writing: 'Writing',
   speaking: 'Speaking',
   achievement: 'Achievement',
   spend: 'Social media',
   manual: 'Returned',
+  penalty: 'Penalty for a bypass',
 };
+
+const APP_NAME: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', vk: 'VK' };
 
 function ledgerLabel(l: WalletLedgerEntry, t: ReturnType<typeof useT>): string {
   if (l.reason === 'achievement' && l.note && l.note in ACHIEVEMENT_TEXT) return `${t('Achievement')}: ${t(ACHIEVEMENT_TEXT[l.note as keyof typeof ACHIEVEMENT_TEXT].title)}`;
@@ -88,6 +92,18 @@ export function Progress() {
         })}
         <div className="hint">{t('Progress is counted from what you really did. Each bonus is paid once, on top of the daily limit.')}</div>
       </Section>
+
+      {p.bypasses.length > 0 && (
+        <Section label={t('Bypasses noticed')}>
+          {p.bypasses.map((b) => (
+            <div key={b.at} className="bypass-row">
+              <span>{t('Bypass noticed: {d}, {app}, about {m} min', { d: `${fmtShort(b.date, lang)} ${new Date(b.at).toLocaleTimeString(lang === 'ru' ? 'ru-RU' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}`, app: APP_NAME[b.app] ?? b.app, m: b.minutes })}</span>
+              <b>−{b.penalty}</b>
+            </div>
+          ))}
+          <div className="hint">{t('NextDNS saw the app open without minutes and outside a session. Each bypass is a penalty to work off with tasks, and the streak starts over.')}</div>
+        </Section>
+      )}
 
       {p.ledger.length > 0 && (
         <Section label={t('Minutes: recent')}>

@@ -48,7 +48,7 @@ export async function achievementStats(repo: Repo, user: UserRow): Promise<Achie
   const byDate = new Map<string, Set<string>>();
   for (const p of paid) {
     if (!byDate.has(p.date)) byDate.set(p.date, new Set());
-    byDate.get(p.date)!.add(p.reason === 'reading' ? 'reading' : p.reason === 'words' || p.reason === 'sentence' ? 'vocab' : 'own');
+    byDate.get(p.date)!.add(p.reason === 'reading' ? 'reading' : p.reason === 'words' || p.reason === 'quiz' || p.reason === 'sentence' ? 'vocab' : 'own');
   }
   const passed = attempts.filter((a) => a.earned > 0 || a.counted);
   return {
@@ -89,8 +89,9 @@ export async function payout(repo: Repo, user: UserRow, today: string, kind: Sho
   return { minutes: paid, capped, achievements, balance: round1(await repo.balance(user.id)) };
 }
 
-/** Streak of days with a paid task. */
+/** Streak of days with a paid task. A bypass resets it: days up to the bypass don't count for the current streak. */
 export async function taskStreak(repo: Repo, user: UserRow, today: string): Promise<{ current: number; best: number }> {
   const days = [...new Set((await repo.paidTasks(user.id)).map((p) => p.date))];
-  return { current: currentRun(days, today), best: longestRun(days) };
+  const reset = user.streak_reset_on;
+  return { current: currentRun(reset ? days.filter((d) => d > reset) : days, today), best: longestRun(days) };
 }

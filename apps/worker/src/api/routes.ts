@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   GateApp,
   LockConfigSchema,
+  QuizSubmitSchema,
   RESET_WORDS,
   ReadingSubmitSchema,
   ResetSchema,
@@ -29,11 +30,13 @@ import { validateInitData } from '../lib/telegram';
 import { answerWord, vocabState } from '../lib/vocab';
 import { readingTask, submitReading } from '../lib/reading';
 import { speakingState, startWriting, submitWriting, writingState } from '../lib/tasks';
-import { sentenceState, submitSentence } from '../lib/sentences';
+import { judgeKind, sentenceState, submitSentence } from '../lib/sentences';
+import { sentenceJudge } from '../lib/judge';
+import { quizState, submitQuiz } from '../lib/quiz';
 import { shopState } from '../lib/shop';
 import { achievementsView, taskStreak } from '../lib/wallet';
 import { configureLock, lockCheck, lockNow, lockState, removeLock, unlock } from '../lib/lock';
-import { secondsLeft } from './gate';
+import { expireSession, secondsLeft } from './gate';
 
 export function settingsView(u: UserRow, env: Env): SettingsView {
   return { ...userSettings(u), bot_username: env.BOT_USERNAME, onboarded: !!u.onboarded };
@@ -83,6 +86,12 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   const user = await requireUser(req, env, repo);
   const today = todayInTz(user.tz);
   const reload = async () => Object.assign(user, await repo.getUserById(user.id));
+  // The server clock: a session whose minutes are over ends now (and the DNS lock closes), whatever the Shortcut did.
+  if (await repo.openSession(user.id)) {
+    await expireSession(repo, user);
+    await reload();
+  }
+  const judge = judgeKind(env);
 
   // ---- /api/settings ----
   if (path === '/settings' && method === 'GET') return json(settingsView(user, env));
@@ -113,7 +122,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   }
 
   // ---- GET /api/shop ---- every task with its price, time and difficulty; the top three now
-  if (path === '/shop' && method === 'GET') return json(await shopState(repo, user, today));
+  if (path === '/shop' && method === 'GET') return json(await shopState(repo, user, today, new Date(), judge));
 
   // ---- Reading ----
   const readMatch = path.match(/^\/reading\/(r(?::|%3A)[a-z0-9:%A-F-]+)$/i);
@@ -134,10 +143,20 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   }
 
   // ---- Sentences ----
-  if (path === '/sentences' && method === 'GET') return json(await sentenceState(repo, user, today));
+  if (path === '/sentences' && method === 'GET') return json(await sentenceState(repo, user, today, judge));
   if (path === '/sentences' && method === 'POST') {
     const body = SentenceSubmitSchema.parse(await readJson(req));
-    return json(await submitSentence(repo, user, today, body.word_id, body.text));
+    return json(await submitSentence(repo, user, today, body.word_id, body.text, sentenceJudge(env, repo)));
+  }
+
+  // ---- «Быстрый тест» ---- multiple choice, checked by the key
+  if (path === '/quiz' && method === 'GET') return json(await quizState(repo, user, today));
+  if (path === '/quiz' && method === 'POST') {
+    const body = QuizSubmitSchema.parse(await readJson(req));
+    const r = await submitQuiz(repo, user, today, body.id, body.answers);
+    if (r === 'not_found') throw new HttpError(404, 'Test not found');
+    if (r === 'already') throw new HttpError(409, 'This test is already answered');
+    return json(r);
   }
 
   // ---- Writing ----
@@ -155,12 +174,13 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   // ---- GET /api/progress ---- achievements, the week, the streak, recent minutes
   if (path === '/progress' && method === 'GET') {
     const from = addDays(today, -6);
-    const [{ list, stats }, study, paid, streak, ledger] = await Promise.all([
+    const [{ list, stats }, study, paid, streak, ledger, bypasses] = await Promise.all([
       achievementsView(repo, user),
       repo.studyMinutes(user.id, '0000-00-00'),
       repo.paidTasks(user.id),
       taskStreak(repo, user, today),
       repo.ledger(user.id, 30),
+      repo.bypassList(user.id),
     ]);
     const earnedOn = new Map<string, number>();
     for (const p of paid) earnedOn.set(p.date, (earnedOn.get(p.date) ?? 0) + p.s);
@@ -179,6 +199,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
         words_learned: (await repo.vocabAll(user.id)).length,
       },
       ledger,
+      bypasses,
     };
     return json(res);
   }
@@ -221,7 +242,25 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
     return json({ ...(await walletView(repo, user, env, today)), refunded: r.refunded });
   }
 
+  // ---- /api/friend ---- the lock buddy: a friend whose Telegram gets a message about every bypass
+  if (path === '/friend/invite' && method === 'POST') {
+    if (!user.partner_code) await repo.updateUser(user.id, { partner_code: randomCode() });
+    await reload();
+    return json(await walletView(repo, user, env, today));
+  }
+  if (path === '/friend' && method === 'DELETE') {
+    await repo.updateUser(user.id, { partner_chat_id: null, partner_name: null, partner_code: null });
+    await reload();
+    return json(await walletView(repo, user, env, today));
+  }
+
   throw new HttpError(404, 'Not found');
+}
+
+function randomCode(): string {
+  const b = new Uint8Array(8);
+  crypto.getRandomValues(b);
+  return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
 async function walletView(repo: Repo, user: UserRow, env: Env, today: string): Promise<WalletResponse> {
@@ -239,5 +278,9 @@ async function walletView(repo: Repo, user: UserRow, env: Env, today: string): P
     earn_left: Math.max(0, w.daily_earn_cap - earnedToday),
     gate_url: `${base}/gate/${key}`,
     lock: lockState({ ...user, sm_api_key: key }, env),
+    friend: {
+      name: user.partner_chat_id ? user.partner_name ?? '' : null,
+      invite: !user.partner_chat_id && user.partner_code && env.BOT_USERNAME ? `https://t.me/${env.BOT_USERNAME}?start=buddy_${user.partner_code}` : null,
+    },
   };
 }

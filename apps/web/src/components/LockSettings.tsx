@@ -8,6 +8,7 @@ import { Field, Section, Sheet } from './ui';
 import { Icon } from './Mascot';
 import { ShortcutsGuide } from './ShortcutsGuide';
 import { LockReel } from './LockReel';
+import { HardenCard } from './HardenCard';
 
 const ALL_APPS: GateApp[] = ['instagram', 'tiktok', 'youtube', 'vk'];
 const CHALLENGE_SIZE = 3;
@@ -188,6 +189,7 @@ function LockDiagnostics({ w }: { w: WalletResponse }) {
           <div className="diag-row">
             <b>{ru ? 'NextDNS (сервер):' : 'NextDNS (server):'}</b>{' '}
             {!d.server ? (ru ? 'не удалось проверить' : 'could not check') : !d.server.ok ? (d.server.error ?? 'error') : open ? (ru ? 'сейчас открыто на оплаченные минуты' : 'open for paid minutes right now') : serverBad ? (ru ? 'закрыто не всё' : 'not everything is blocked') : (ru ? 'всё закрыто' : 'everything is blocked')}
+            {d.server?.logs === false && <div className="small" style={{ color: 'var(--danger)' }}>{ru ? 'Логи в NextDNS выключены — обход не будет замечен. Шаг 8 выше.' : 'NextDNS logs are off — a bypass goes unnoticed. Step 8 above.'}</div>}
             {d.server?.repaired && <div className="muted small">{ru ? 'Замок в NextDNS был снят — я закрыл его заново.' : 'The NextDNS lock was off — I closed it again.'}</div>}
             {d.server?.blocked && (
               <div className="muted small">{Object.entries(d.server.blocked).map(([a, v]) => `${GATE_APP_LABEL[a as GateApp]} ${v ? '✓' : '✗'}`).join(' · ')}</div>
@@ -308,6 +310,14 @@ function NextDnsSetup({ w, onChange }: { w: WalletResponse; onChange: (r: Wallet
           <LinkBtn href={`https://my.nextdns.io/${lock.profile_id}/setup`}>{ru ? 'Настройка NextDNS (Linked IP)' : 'NextDNS setup (Linked IP)'}</LinkBtn>
         </Step>
       )}
+      {lock.profile_id && (
+        <Step n={8} title={t('Turn on the query log in NextDNS')}>
+          {t('NextDNS → Settings → Logs → Enable logs. The server reads the log to notice a bypass; without it bypasses go unnoticed.')}
+          <br />
+          <LinkBtn href={`https://my.nextdns.io/${lock.profile_id}/settings`}>{t('NextDNS settings')}</LinkBtn>
+        </Step>
+      )}
+      <div className="hint">{t('How it works now: the server opens NextDNS only while there are minutes and closes it the moment they run out — on its own clock, even if the Shortcut was interrupted. After the lock the feed may still show what it has already loaded for about a minute (the DNS cache) — that is normal.')}</div>
       <LockDiagnostics w={w} />
       <div className="row" style={{ gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
         <button className="btn link" onClick={() => openExternal(LINKS.nextdnsHome)}>{ru ? 'Открыть NextDNS' : 'Open NextDNS'} ↗</button>
@@ -376,7 +386,7 @@ export function LockSettings() {
   return (
     <>
       <Section label={ru ? 'Способ 1 · iPhone: «Команды»' : 'Option 1 · iPhone: Shortcuts'}>
-        <p className="muted small">{t('No NextDNS needed: the Shortcuts app closes {apps} when you have no minutes, and a timer sends you to the Home Screen when the paid minutes run out. About 10 minutes to set up, once.', { apps: names })}</p>
+        <p className="muted small">{t('The Shortcuts app sends you to the Home Screen the moment you open {apps} without minutes. The time itself is kept by the server: with NextDNS (option 2) the apps stop loading when the paid minutes run out, even if the Shortcut was interrupted. About 5 minutes to set up, once.', { apps: names })}</p>
         <div className="row" style={{ gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
           <button className="btn solid" onClick={() => { haptic.tap(); setGuide(true); }}>{t('Step-by-step guide')}</button>
           <a className="btn" href={LINKS.shortcutsApp} onClick={() => haptic.tap()}>{ru ? 'Открыть «Команды»' : 'Open Shortcuts'}</a>
@@ -387,6 +397,8 @@ export function LockSettings() {
         <p className="muted small">{ru ? `Домены ${names} перестают открываться на уровне DNS — в приложении, в браузере, везде. Открываются только на оплаченные минуты.` : `${names} stop resolving at the DNS level — in the app, in the browser, everywhere. They open only for paid minutes.`}</p>
         <NextDnsSetup w={w} onChange={setW} />
       </Section>
+
+      <HardenCard w={w} onChange={setW} />
 
       <Section label={ru ? 'Что закрывать и лимиты' : 'What to lock and limits'}>
         <div className="field">

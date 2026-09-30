@@ -2,8 +2,8 @@
  * Rubric checks for free answers (sentence, Writing, Speaking). Deterministic and shared: the server decides,
  * the app shows the same list of criteria with a plain explanation for each one that failed.
  */
-import { countWords, isEnglish, stem, vocabUsed } from './text';
-import type { VocabWord } from './vocab';
+import { countWords, isEnglish, stem, vocabUsed, vocabUsedPerSentence } from './text';
+import { VOCAB, type VocabWord } from './vocab';
 
 export type CriterionId =
   | 'length' // enough words
@@ -15,6 +15,10 @@ export type CriterionId =
   | 'variety' // not the same words over and over
   | 'gibberish' // no random letters
   | 'copy' // not a copy of an earlier answer / of the example
+  | 'repeat' // not an earlier sentence again, reworded or reordered
+  | 'list' // a sentence, not a list of words
+  | 'bank_share' // not stuffed with words from the bank
+  | 'meaning_ai' // the model: the sentence makes sense and uses the word in the right meaning
   | 'prompt' // not the task text copied back
   | 'time' // took long enough (Writing: timer on the server)
   | 'duration' // voice long enough
@@ -109,20 +113,61 @@ function varietyOk(text: string, short: boolean): { ok: boolean; value: number }
 
 // ---------- Sentence with a word ----------
 
-export const SENTENCE_MIN_WORDS = 7;
+export const SENTENCE_MIN_WORDS = 6;
+export const SENTENCE_MAX_WORDS = 25;
+/** Words from the bank may be at most this share of a sentence: "alleviate ubiquitous detrimental…" is not a sentence. */
+export const SENTENCE_BANK_SHARE = 0.3;
 
+/** A list, not a sentence: 3+ parts split by commas, semicolons, slashes or line breaks, most of them one or two words. */
+export function looksLikeList(text: string): boolean {
+  const parts = text.split(/[,;/\n•·|]+/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 3) return false;
+  return parts.filter((p) => countWords(p) <= 2).length / parts.length >= 0.6;
+}
+
+/** Content words (stemmed) of a text, for comparing sentences regardless of order. */
+function contentSet(text: string): Set<string> {
+  return new Set(tokens(text).filter((w) => !STOPWORDS.has(w)).map(stem));
+}
+
+/** An earlier sentence again: the same content words in any order, or long copied stretches. */
+export function repeatsEarlier(text: string, previous: string[]): boolean {
+  const mine = contentSet(text);
+  if (!mine.size) return false;
+  return previous.some((p) => {
+    const theirs = contentSet(p);
+    let same = 0;
+    for (const w of mine) if (theirs.has(w)) same++;
+    return same / Math.max(mine.size, theirs.size) >= 0.6 || copiedShare(text, p) >= 0.5;
+  });
+}
+
+/** Distinct bank words in a text and their share of all its words. */
+export function bankShare(text: string): { count: number; share: number } {
+  const count = vocabUsed(text, VOCAB).length;
+  const words = countWords(text);
+  return { count, share: words ? count / words : 0 };
+}
+
+/**
+ * The rules a sentence must pass before a model (if any) looks at it. They catch the cheap tricks: a string of
+ * unrelated bank words, a word list, the bank example, an earlier sentence reordered.
+ */
 export function checkSentence(o: { word: string; example: string; text: string; previous?: string[] }): CheckResult {
   const words = countWords(o.text);
   const used = vocabUsed(o.text, [{ id: 1, word: o.word }]).length > 0;
-  const copy = Math.max(copiedShare(o.text, o.example), ...(o.previous ?? []).map((p) => copiedShare(o.text, p)));
   const gib = gibberishShare(o.text);
+  const bank = bankShare(o.text);
   return result([
     { id: 'word', ok: used, value: o.word },
-    { id: 'length', ok: words >= SENTENCE_MIN_WORDS, value: words, need: SENTENCE_MIN_WORDS },
+    { id: 'length', ok: words >= SENTENCE_MIN_WORDS && words <= SENTENCE_MAX_WORDS, value: words, need: `${SENTENCE_MIN_WORDS}–${SENTENCE_MAX_WORDS}` },
+    { id: 'list', ok: !looksLikeList(o.text) },
     { id: 'english', ok: isEnglish(o.text) },
     { id: 'gibberish', ok: gib <= 0.1 },
     { id: 'variety', ok: varietyOk(o.text, true).ok },
-    { id: 'copy', ok: copy < 0.5 },
+    { id: 'bank_share', ok: bank.share <= SENTENCE_BANK_SHARE, value: bank.count, need: Math.round(SENTENCE_BANK_SHARE * 100) },
+    { id: 'copy', ok: copiedShare(o.text, o.example) < 0.5 && !repeatsEarlier(o.text, [o.example]) },
+    { id: 'repeat', ok: !repeatsEarlier(o.text, o.previous ?? []) },
   ]);
 }
 
@@ -155,7 +200,8 @@ export function checkWriting(o: {
 }): CheckResult & { words: number; used: string[]; linking: string[] } {
   const r = WRITING_RULES[o.size];
   const words = countWords(o.text);
-  const ids = vocabUsed(o.text, o.vocab);
+  // At most one recent word per sentence counts: stuffing one sentence with them doesn't meet the rule.
+  const ids = vocabUsedPerSentence(o.text, o.vocab);
   const used = o.vocab.filter((w) => ids.includes(w.id)).map((w) => w.word);
   const needVocab = Math.min(r.vocab, o.vocab.length);
   const linking = linkingUsed(o.text);

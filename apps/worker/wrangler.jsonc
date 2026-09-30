@@ -25,7 +25,7 @@
   ],
 
   "triggers": {
-    // Every 15 minutes: the morning message (three tasks) in the user's timezone, stale Shortcuts sessions. Every minute: NextDNS windows.
+    // Every 15 minutes: the morning message, sentences waiting for the model. Every minute: the session clock, NextDNS windows, bypass checks.
     "crons": ["*/15 * * * *", "* * * * *"]
   },
 

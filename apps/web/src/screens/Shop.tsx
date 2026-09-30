@@ -9,9 +9,9 @@ type Filter = 'all' | 'reading' | 'words' | 'writing' | 'speaking';
 type Sort = 'quick' | 'value';
 
 const FILTERS: { id: Filter; label: string; kinds: ShopKind[] }[] = [
-  { id: 'all', label: 'All', kinds: ['reading', 'words', 'sentence', 'writing', 'speaking'] },
+  { id: 'all', label: 'All', kinds: ['reading', 'words', 'quiz', 'sentence', 'writing', 'speaking'] },
   { id: 'reading', label: 'Reading', kinds: ['reading'] },
-  { id: 'words', label: 'Words', kinds: ['words', 'sentence'] },
+  { id: 'words', label: 'Words', kinds: ['words', 'quiz', 'sentence'] },
   { id: 'writing', label: 'Writing', kinds: ['writing'] },
   { id: 'speaking', label: 'Speaking', kinds: ['speaking'] },
 ];
@@ -59,7 +59,7 @@ export function Shop({ shop, onStart }: { shop: ShopResponse | null; onStart: (t
           {done.map((x) => <TaskCard key={x.id} task={x} onStart={onStart} />)}
         </Section>
       )}
-      <div className="hint">{t('Limits: words pay for 10 answers a day, sentences for 5, each Writing and Speaking task once a day, a Reading task once. A task does not pay twice.')}</div>
+      <div className="hint">{t('Limits: words pay for 10 answers a day, the Quick test for 5 tests, sentences for 5 (only when the meaning check is on), each Writing and Speaking task once a day, a Reading task once. A task does not pay twice.')}</div>
     </div>
   );
 }

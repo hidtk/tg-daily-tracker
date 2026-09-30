@@ -1,6 +1,8 @@
 import {
+  QUIZ_PAY,
+  QUIZ_SETS_PER_DAY,
+  QUIZ_SIZE,
   SENTENCES_PER_DAY,
-  SENTENCE_PAY,
   SPEAKING_TASKS,
   WORDS_PAID_PER_DAY,
   WORD_PAY,
@@ -9,6 +11,7 @@ import {
   readingParts,
   findReadingPart,
   type ShopResponse,
+  type JudgeKind,
   type ShopTask,
   type TaskSize,
 } from '@tracker/shared';
@@ -17,6 +20,7 @@ import { partState, passagesOnOffer } from './reading';
 import { reviewQueue } from './vocab';
 import { speakingCard, speakingTaskId, writingTaskId, writingTopic } from './tasks';
 import { secondsLeft } from '../api/gate';
+import { sentencePay } from './sentences';
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const SIZES: TaskSize[] = ['short', 'long'];
@@ -25,14 +29,15 @@ const SIZES: TaskSize[] = ['short', 'long'];
  * The live shop: every task with its price, expected time and difficulty, and whether it can be done now.
  * Prices are clamped by what is left of today's limit; a task paid today moves to "done" with what it earned.
  */
-export async function shopState(repo: Repo, user: UserRow, today: string, now = new Date()): Promise<ShopResponse> {
+export async function shopState(repo: Repo, user: UserRow, today: string, now = new Date(), judge: JudgeKind = 'none'): Promise<ShopResponse> {
   const w = walletSettings(user);
-  const [attempts, byTask, byKind, vocab, sentences, writings, speakings, balance, open] = await Promise.all([
+  const [attempts, byTask, byKind, vocab, sentences, quizSets, writings, speakings, balance, open] = await Promise.all([
     repo.readingAttempts(user.id),
     repo.earnedByTask(user.id, today),
     repo.earnedByKind(user.id, today),
     repo.vocabAll(user.id),
     repo.sentencesOn(user.id, today),
+    repo.quizSetsOn(user.id, today),
     repo.tasksOn(user.id, today, 'writing'),
     repo.tasksOn(user.id, today, 'speaking'),
     repo.balance(user.id),
@@ -78,9 +83,13 @@ export async function shopState(repo: Repo, user: UserRow, today: string, now = 
     left: questions,
   });
 
-  // A sentence with a word.
+  // «Быстрый тест»: a gap in an example, the meaning of a word — checked by the key.
+  const quizLeft = Math.max(0, QUIZ_SETS_PER_DAY - quizSets.filter((q) => q.submitted_at).length);
+  offer({ id: 'quiz', kind: 'quiz', status: quizLeft ? 'open' : 'done', minutes: 1, price: QUIZ_PAY, level: 1, earned: byKind.quiz ?? 0, title: '', questions: QUIZ_SIZE, left: quizLeft });
+
+  // A sentence with a word: pays only when a model checks the meaning; without one it is practice.
   const sentLeft = Math.max(0, SENTENCES_PER_DAY - sentences);
-  offer({ id: 'sentence', kind: 'sentence', status: sentLeft ? 'open' : 'done', minutes: 2, price: SENTENCE_PAY, level: 1, earned: byKind.sentence ?? 0, title: '', left: sentLeft });
+  offer({ id: 'sentence', kind: 'sentence', status: sentLeft ? 'open' : 'done', minutes: 2, price: sentencePay(judge), level: 1, earned: byKind.sentence ?? 0, title: '', left: sentLeft });
 
   // Writing and Speaking, a short and a long one each, once a day.
   for (const size of SIZES) {
@@ -101,6 +110,7 @@ export async function shopState(repo: Repo, user: UserRow, today: string, now = 
     daily_cap: w.daily_earn_cap,
     earn_left: earnLeft,
     session: open ? { app: open.app, seconds_left: Math.max(0, secondsLeft(balance, open, now)) } : null,
+    lock_alert: user.lock_warning ? { since: user.lock_warning } : null,
     tasks,
     top: pickTop(tasks),
   };

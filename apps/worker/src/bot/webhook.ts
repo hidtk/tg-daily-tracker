@@ -1,7 +1,7 @@
 import { todayInTz } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo } from '../lib/db';
-import { Bot, type InlineKeyboardButton } from '../lib/telegram';
+import { Bot, escapeHtml, type InlineKeyboardButton } from '../lib/telegram';
 import { acceptVoice } from '../lib/tasks';
 import { appButton, helpText, voiceReplyText, welcomeText } from './messages';
 
@@ -57,6 +57,20 @@ export async function handleWebhook(req: Request, env: Env): Promise<Response> {
     if (!msg?.from || msg.chat.type !== 'private') return new Response('ok');
     const chatId = msg.chat.id;
     const cmd = (msg.text ?? '').trim().split(/[\s@]/)[0].toLowerCase();
+
+    // A lock buddy accepts the invite: this chat gets a message about every bypass.
+    const buddy = cmd === '/start' ? (msg.text ?? '').trim().match(/^\/start\s+buddy_([0-9a-f]{16})$/i) : null;
+    if (buddy) {
+      const owner = await repo.getUserByPartnerCode(buddy[1].toLowerCase());
+      if (!owner || owner.tg_id === msg.from.id) {
+        await bot.sendMessage(chatId, 'This invite is not valid any more. Ask for a new link.');
+        return new Response('ok');
+      }
+      await repo.updateUser(owner.id, { partner_chat_id: chatId, partner_name: msg.from.first_name, partner_code: null });
+      await bot.sendMessage(chatId, `Done: you are ${escapeHtml(owner.first_name)}'s lock buddy. I will message you if the social-media lock is got around. Nothing else.`);
+      await bot.sendMessage(owner.tg_id, `${escapeHtml(msg.from.first_name)} is now your lock buddy: they get a message about every bypass.`).catch(() => undefined);
+      return new Response('ok');
+    }
 
     if (cmd === '/start') {
       const { user } = await repo.ensureUser(msg.from.id, msg.from.first_name, 'UTC');

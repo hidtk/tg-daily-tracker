@@ -114,7 +114,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     },
     {
       title: t('Set up the lock on the iPhone once'),
-      text: t('About 10 minutes, once: two automations in the Shortcuts app. Watch the steps, then open the guide with your links.'),
+      text: t('About 5 minutes, once: two short automations in the Shortcuts app. Watch the steps, then open the guide with your links.'),
       pic: (
         <>
           <LockReel compact />

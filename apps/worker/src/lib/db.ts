@@ -25,7 +25,18 @@ export interface UserRow {
   lock_until: string | null;
   lock_password: string | null;
   lock_error: string | null;
+  /** who opened the DNS lock: 'session' (the Shortcut, until the minutes run out) or 'manual' (a paid window) */
+  lock_source: string | null;
   onboarded: number;
+  gate_seen_at: string | null;
+  bypass_checked_at: string | null;
+  lock_warning: string | null;
+  lock_warning_checked_at: string | null;
+  streak_reset_on: string | null;
+  /** the lock buddy (a friend who gets bypass messages) */
+  partner_chat_id: number | null;
+  partner_name: string | null;
+  partner_code: string | null;
 }
 
 export interface SessionRow {
@@ -55,6 +66,30 @@ export interface TaskRow {
   seconds: number;
   file_unique_id: string | null;
   feedback: string | null;
+}
+
+export interface SentenceRow {
+  id: number;
+  user_id: number;
+  word_id: number;
+  date: string;
+  text: string;
+  status: 'accepted' | 'pending' | 'practice' | 'rejected';
+  verdict: string | null;
+  tries: number;
+}
+
+export interface QuizSetRow {
+  id: number;
+  user_id: number;
+  date: string;
+  n: number;
+  /** JSON: QuizStored[] */
+  questions: string;
+  started_at: string;
+  submitted_at: string | null;
+  correct: number | null;
+  paid: number;
 }
 
 export interface VocabRow {
@@ -111,6 +146,7 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 export const PROGRESS_TABLES = [
   'reading_attempts', 'wallet_ledger', 'wallet_sessions', 'vocab_progress', 'vocab_reviews', 'vocab_sentences',
   'practice_tasks', 'achievements', 'entries', 'proofs', 'pending_proofs', 'mock_tests', 'homeworks', 'lessons',
+  'quiz_sets', 'bypasses', 'lock_windows',
 ] as const;
 
 export class Repo {
@@ -166,7 +202,7 @@ export class Repo {
   async resetProgress(userId: number) {
     await this.db.batch([
       ...PROGRESS_TABLES.map((t) => this.db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(userId)),
-      this.db.prepare('UPDATE users SET sm_balance = 0, reading_batch = 1, onboarded = 0, last_morning_sent = NULL WHERE id = ?').bind(userId),
+      this.db.prepare('UPDATE users SET sm_balance = 0, reading_batch = 1, onboarded = 0, last_morning_sent = NULL, streak_reset_on = NULL WHERE id = ?').bind(userId),
     ]);
   }
 
@@ -270,10 +306,10 @@ export class Repo {
    * Charge time actually used in an app. Unlike addMinutes this may go below zero:
    * the overrun becomes a debt that the next earnings pay back.
    */
-  async charge(userId: number, date: string, minutes: number, note: string): Promise<number> {
+  async charge(userId: number, date: string, minutes: number, note: string, reason: 'spend' | 'penalty' = 'spend'): Promise<number> {
     if (minutes <= 0) return this.balance(userId);
     await this.db.prepare('UPDATE users SET sm_balance = sm_balance - ? WHERE id = ?').bind(minutes, userId).run();
-    await this.db.prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)').bind(userId, date, -minutes, 'spend', note).run();
+    await this.db.prepare('INSERT INTO wallet_ledger (user_id, date, delta, reason, note) VALUES (?, ?, ?, ?, ?)').bind(userId, date, -minutes, reason, note).run();
     return this.balance(userId);
   }
 
@@ -348,13 +384,91 @@ export class Repo {
     return (r.meta.changes ?? 0) > 0;
   }
 
-  /** Sessions left open by a missed close event (no close and no heartbeat for a while), across all users. */
-  async staleSessions(olderThanMin: number) {
-    const { results } = await this.db
-      .prepare(`SELECT * FROM wallet_sessions WHERE ended_at IS NULL AND COALESCE(last_seen, started_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)`)
-      .bind(`-${olderThanMin} minutes`)
-      .all<SessionRow>();
+  /** Every running session, across all users (the minute cron ends the ones whose minutes ran out). */
+  async openSessions() {
+    const { results } = await this.db.prepare('SELECT * FROM wallet_sessions WHERE ended_at IS NULL').all<SessionRow>();
     return results;
+  }
+
+  // ---- DNS windows and bypasses ----
+
+  async addLockWindow(userId: number, openedAt: string, closedAt: string) {
+    await this.db.prepare('INSERT INTO lock_windows (user_id, opened_at, closed_at) VALUES (?, ?, ?)').bind(userId, openedAt, closedAt).run();
+  }
+
+  /** A paid window closed early: it ends now. */
+  async endLockWindows(userId: number, nowIso: string) {
+    await this.db.prepare('UPDATE lock_windows SET closed_at = ?1 WHERE user_id = ?2 AND closed_at > ?1').bind(nowIso, userId).run();
+  }
+
+  /** When social media was allowed: Shortcuts sessions (a running one up to now) and paid windows, from `fromIso` on. */
+  async allowedIntervals(userId: number, fromIso: string, nowIso: string): Promise<{ from: string; to: string }[]> {
+    const [s, w] = await this.db.batch([
+      this.db.prepare('SELECT started_at AS f, COALESCE(ended_at, ?3) AS t FROM wallet_sessions WHERE user_id = ?1 AND COALESCE(ended_at, ?3) >= ?2').bind(userId, fromIso, nowIso),
+      this.db.prepare('SELECT opened_at AS f, closed_at AS t FROM lock_windows WHERE user_id = ? AND closed_at >= ?').bind(userId, fromIso),
+    ]);
+    return [...(s.results as { f: string; t: string }[]), ...(w.results as { f: string; t: string }[])].map((r) => ({ from: r.f, to: r.t }));
+  }
+
+  /** Record a bypass once (the same app and start is never counted twice). */
+  async addBypass(userId: number, b: { date: string; app: string; first_at: string; last_at: string; minutes: number; penalty: number }): Promise<boolean> {
+    const r = await this.db
+      .prepare('INSERT OR IGNORE INTO bypasses (user_id, date, app, first_at, last_at, minutes, penalty) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(userId, b.date, b.app, b.first_at, b.last_at, b.minutes, b.penalty)
+      .run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  async bypassList(userId: number, limit = 20): Promise<{ at: string; date: string; app: string; minutes: number; penalty: number }[]> {
+    const { results } = await this.db
+      .prepare('SELECT first_at AS at, date, app, minutes, penalty FROM bypasses WHERE user_id = ? ORDER BY first_at DESC LIMIT ?')
+      .bind(userId, limit)
+      .all<{ at: string; date: string; app: string; minutes: number; penalty: number }>();
+    return results;
+  }
+
+  getUserByPartnerCode(code: string) {
+    return this.db.prepare('SELECT * FROM users WHERE partner_code = ?').bind(code).first<UserRow>();
+  }
+
+  // ---- model checks ----
+
+  /** Take one model request for the day if the ceiling allows it. False: the ceiling is reached (nothing written). */
+  async llmTake(day: string, provider: string, cap: number): Promise<boolean> {
+    await this.db.prepare('INSERT OR IGNORE INTO llm_usage (day, provider, requests) VALUES (?, ?, 0)').bind(day, provider).run();
+    const r = await this.db.prepare('UPDATE llm_usage SET requests = requests + 1 WHERE day = ? AND provider = ? AND requests < ?').bind(day, provider, cap).run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  async llmUsed(day: string, provider: string): Promise<number> {
+    const r = await this.db.prepare('SELECT requests AS n FROM llm_usage WHERE day = ? AND provider = ?').bind(day, provider).first<{ n: number }>();
+    return r?.n ?? 0;
+  }
+
+  // ---- «Быстрый тест» ----
+
+  async quizSetsOn(userId: number, date: string): Promise<QuizSetRow[]> {
+    const { results } = await this.db.prepare('SELECT * FROM quiz_sets WHERE user_id = ? AND date = ? ORDER BY n').bind(userId, date).all<QuizSetRow>();
+    return results;
+  }
+
+  /** Create set number `n` for the day once (a parallel request gets the same set). */
+  async createQuizSet(userId: number, date: string, n: number, questions: string) {
+    await this.db.prepare('INSERT OR IGNORE INTO quiz_sets (user_id, date, n, questions) VALUES (?, ?, ?, ?)').bind(userId, date, n, questions).run();
+  }
+
+  quizSet(userId: number, id: number) {
+    return this.db.prepare('SELECT * FROM quiz_sets WHERE user_id = ? AND id = ?').bind(userId, id).first<QuizSetRow>();
+  }
+
+  /** Answer a set once. False if it was already answered. */
+  async finishQuizSet(id: number, correct: number): Promise<boolean> {
+    const r = await this.db.prepare(`UPDATE quiz_sets SET submitted_at = ${NOW}, correct = ? WHERE id = ? AND submitted_at IS NULL`).bind(correct, id).run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  async setQuizPaid(id: number, paid: number) {
+    await this.db.prepare('UPDATE quiz_sets SET paid = ? WHERE id = ?').bind(paid, id).run();
   }
 
   async openLocks(nowIso: string): Promise<UserRow[]> {
@@ -402,7 +516,7 @@ export class Repo {
   async practiceCounts(userId: number) {
     const [w, s, t] = await this.db.batch([
       this.db.prepare("SELECT COUNT(*) AS n FROM vocab_reviews WHERE user_id = ? AND ok = 1 AND hint = 0 AND kind <> 'self'").bind(userId),
-      this.db.prepare('SELECT COUNT(*) AS n FROM vocab_sentences WHERE user_id = ?').bind(userId),
+      this.db.prepare("SELECT COUNT(*) AS n FROM vocab_sentences WHERE user_id = ? AND status = 'accepted'").bind(userId),
       this.db.prepare("SELECT SUM(CASE WHEN kind = 'writing' THEN 1 ELSE 0 END) AS w, SUM(CASE WHEN kind = 'speaking' THEN 1 ELSE 0 END) AS s FROM practice_tasks WHERE user_id = ? AND status = 'accepted'").bind(userId),
     ]);
     const first = (x: D1Result) => (x.results?.[0] ?? {}) as { n?: number; w?: number; s?: number };
@@ -501,17 +615,43 @@ export class Repo {
 
   // ---- sentences ----
 
+  /** Sentences written on a date (accepted, waiting or practice — a rejected one after the wait frees its place). */
   async sentencesOn(userId: number, date: string): Promise<number> {
-    const r = await this.db.prepare('SELECT COUNT(*) AS n FROM vocab_sentences WHERE user_id = ? AND date = ?').bind(userId, date).first<{ n: number }>();
+    const r = await this.db.prepare("SELECT COUNT(*) AS n FROM vocab_sentences WHERE user_id = ? AND date = ? AND status <> 'rejected'").bind(userId, date).first<{ n: number }>();
     return r?.n ?? 0;
   }
 
   async sentenceExists(userId: number, wordId: number, date: string): Promise<boolean> {
-    return !!(await this.db.prepare('SELECT 1 AS x FROM vocab_sentences WHERE user_id = ? AND word_id = ? AND date = ?').bind(userId, wordId, date).first());
+    return !!(await this.db.prepare("SELECT 1 AS x FROM vocab_sentences WHERE user_id = ? AND word_id = ? AND date = ? AND status <> 'rejected'").bind(userId, wordId, date).first());
   }
 
-  async addSentence(userId: number, wordId: number, date: string, text: string) {
-    await this.db.prepare('INSERT INTO vocab_sentences (user_id, word_id, date, text) VALUES (?, ?, ?, ?)').bind(userId, wordId, date, text).run();
+  async addSentence(userId: number, wordId: number, date: string, text: string, status: 'accepted' | 'pending' | 'practice' = 'accepted', verdict: unknown = null): Promise<number> {
+    const r = await this.db
+      .prepare('INSERT INTO vocab_sentences (user_id, word_id, date, text, status, verdict) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(userId, wordId, date, text, status, verdict == null ? null : JSON.stringify(verdict))
+      .run();
+    return Number(r.meta.last_row_id);
+  }
+
+  async sentencesToday(userId: number, date: string): Promise<SentenceRow[]> {
+    const { results } = await this.db.prepare('SELECT * FROM vocab_sentences WHERE user_id = ? AND date = ? ORDER BY id DESC').bind(userId, date).all<SentenceRow>();
+    return results;
+  }
+
+  /** Sentences waiting for the model, oldest first, across all users. */
+  async pendingSentences(limit = 20): Promise<SentenceRow[]> {
+    const { results } = await this.db.prepare("SELECT * FROM vocab_sentences WHERE status = 'pending' ORDER BY id LIMIT ?").bind(limit).all<SentenceRow>();
+    return results;
+  }
+
+  /** Settle a waiting sentence once. False if another run got there first. */
+  async settleSentence(id: number, status: 'accepted' | 'rejected', verdict: unknown): Promise<boolean> {
+    const r = await this.db.prepare("UPDATE vocab_sentences SET status = ?, verdict = ? WHERE id = ? AND status = 'pending'").bind(status, JSON.stringify(verdict), id).run();
+    return (r.meta.changes ?? 0) > 0;
+  }
+
+  async sentenceTried(id: number) {
+    await this.db.prepare('UPDATE vocab_sentences SET tries = tries + 1 WHERE id = ?').bind(id).run();
   }
 
   /** word_id → last date a sentence was written, for choosing the next word. */

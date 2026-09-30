@@ -7,6 +7,7 @@ import { useToast } from '../components/Toast';
 import { Section } from '../components/ui';
 import { Icon, Mascot, type MascotMood } from '../components/Mascot';
 import { TaskCard } from '../components/TaskCard';
+import { ShortcutsGuide } from '../components/ShortcutsGuide';
 
 /** Elvis says one thing that matters now. */
 function mascotLine(s: ShopResponse, t: ReturnType<typeof useT>): { mood: MascotMood; text: string } {
@@ -21,6 +22,7 @@ export function Home({ shop, wallet, onStart, onShop, onWallet }: { shop: ShopRe
   const t = useT();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [guide, setGuide] = useState(false);
   if (!shop) return <span className="spinner" />;
 
   const debt = shop.balance < 0;
@@ -59,6 +61,14 @@ export function Home({ shop, wallet, onStart, onShop, onWallet }: { shop: ShopRe
 
   return (
     <div className="screen">
+      {shop.lock_alert && (
+        <div className="lock-alert" role="alert">
+          <b>{t('The lock is switched off')}</b>
+          <p>{t('The Shortcuts automation has not called for a day, but NextDNS saw social media. Turn it back on — otherwise the apps open without minutes.')}</p>
+          <button className="btn sm" onClick={() => { haptic.tap(); setGuide(true); }}>{t('Turn it back on')}</button>
+        </div>
+      )}
+      {guide && wallet && <ShortcutsGuide gateUrl={wallet.gate_url} apps={wallet.apps} onClose={() => setGuide(false)} />}
       <div className="section minutes-card">
         <div className="row between" style={{ alignItems: 'flex-end' }}>
           <div>
