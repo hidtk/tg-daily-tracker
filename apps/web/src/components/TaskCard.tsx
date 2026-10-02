@@ -15,6 +15,8 @@ export function taskName(task: ShopTask, t: T): string {
       return task.hard ? `Reading · ${t('hard text')}` : 'Reading';
     case 'words':
       return t('Words');
+    case 'quiz':
+      return t('Quick test');
     case 'sentence':
       return t('A sentence with a word');
     case 'writing':
@@ -31,8 +33,10 @@ export function taskWhat(task: ShopTask, t: T): string {
       return `${task.title} · ${t(PART_LABEL[task.part ?? 'all'])} · ${t('{n} questions', { n: task.questions ?? 0 })}`;
     case 'words':
       return t('See the Russian meaning or a sentence with a gap, type the English word.');
+    case 'quiz':
+      return t('{n} questions: choose the word for a gap or the meaning of a word. {m} more today.', { n: task.questions ?? 5, m: task.left ?? 0 });
     case 'sentence':
-      return t('Your own sentence with a word of the day. {n} more today.', { n: task.left ?? 0 });
+      return task.price > 0 ? t('Your own sentence with a word of the day. {n} more today.', { n: task.left ?? 0 }) : t('Your own sentence with a word of the day — practice, no minutes. {n} more today.', { n: task.left ?? 0 });
     case 'writing':
       return `${task.title} · ${task.size === 'long' ? t('150+ words') : t('60+ words')}`;
     case 'speaking':

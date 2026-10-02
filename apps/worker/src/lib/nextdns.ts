@@ -79,6 +79,51 @@ export async function checkBlocked(key: string, profile: string, apps: GateApp[]
   return { ok: true, blocked };
 }
 
+/** Whether the profile keeps query logs (bypass detection reads them). null: could not tell. */
+export async function logsEnabled(key: string, profile: string): Promise<boolean | null> {
+  const r = await call(key, 'GET', `/profiles/${profile}`);
+  if (!r.ok) return null;
+  const on = (r.data as { data?: { settings?: { logs?: { enabled?: boolean } } } })?.data?.settings?.logs?.enabled;
+  return typeof on === 'boolean' ? on : null;
+}
+
+/** The gated app a queried domain belongs to (the domain itself or any of its parents is on the app's list). */
+export function appForDomain(domain: string): GateApp | null {
+  const d = domain.toLowerCase().replace(/\.$/, '');
+  for (const [app, list] of Object.entries(DOMAINS) as [GateApp, string[]][]) {
+    if (list.some((x) => d === x || d.endsWith(`.${x}`))) return app;
+  }
+  return null;
+}
+
+export interface LogEntry {
+  timestamp: string;
+  domain: string;
+  /** 'default' (resolved), 'blocked', 'allowed', 'error' */
+  status: string;
+}
+
+/**
+ * Query log between two moments, oldest first (GET /profiles/:id/logs, paged by cursor). null when NextDNS can't be
+ * read — the caller keeps its place and tries again later.
+ */
+export async function fetchLogs(key: string, profile: string, from: Date, to: Date, search?: string, maxPages = 5): Promise<LogEntry[] | null> {
+  const out: LogEntry[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    const q = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), limit: '1000' });
+    if (search) q.set('search', search);
+    if (cursor) q.set('cursor', cursor);
+    const r = await call(key, 'GET', `/profiles/${profile}/logs?${q}`);
+    if (!r.ok) return null;
+    const d = r.data as { data?: LogEntry[]; meta?: { pagination?: { cursor?: string | null } } };
+    for (const e of Array.isArray(d.data) ? d.data : []) if (e?.timestamp && e.domain) out.push({ timestamp: e.timestamp, domain: e.domain, status: e.status ?? 'default' });
+    cursor = d.meta?.pagination?.cursor ?? null;
+    if (!cursor) break;
+  }
+  return out.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
 function uuid(): string {
   return crypto.randomUUID().toUpperCase();
 }

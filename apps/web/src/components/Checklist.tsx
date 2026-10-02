@@ -15,6 +15,7 @@ export function criterionText(c: Criterion, t: T): string {
   const n = c.need ?? '';
   switch (c.id) {
     case 'length':
+      if (typeof c.need === 'string') return c.ok ? t('Length: {v} words (need {n})', { v, n }) : t('{v} words — a sentence here has {n} words.', { v, n });
       return c.ok ? t('Length: {v} words (need {n})', { v, n }) : t('Too short: {v} words, need at least {n}. Add a few sentences.', { v, n });
     case 'vocab':
       if (c.ok && Number(n) === 0) return t('Recent words: none learned yet, so this rule is skipped');
@@ -43,6 +44,14 @@ export function criterionText(c: Criterion, t: T): string {
       return c.ok ? t('Recorded by you') : t('Forwarded voice messages do not count. Record your own.');
     case 'new_voice':
       return c.ok ? t('A new recording') : t('This voice message was already counted.');
+    case 'repeat':
+      return c.ok ? t('Not one of your earlier sentences') : t('This is an earlier sentence again, reworded or reordered. Write a new one.');
+    case 'list':
+      return c.ok ? t('A sentence, not a list') : t('This is a list of words. Write one full sentence that says something.');
+    case 'bank_share':
+      return c.ok ? t('Not stuffed with bank words') : t('Too many words from the bank ({v}): a sentence counts for one word. Use this word in a normal sentence.', { v });
+    case 'meaning_ai':
+      return c.ok ? t('Makes sense and uses the word right (model check)') : t('The meaning check did not accept it: see the reason above.');
     case 'topic_ai':
       return c.ok ? t('On topic (AI check)') : t('Off topic, says the AI check: answer the question of the topic.');
   }

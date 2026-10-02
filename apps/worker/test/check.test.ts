@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkSentence, checkVoice, checkWriting, copiedShare, gibberishShare, linkingUsed } from '@tracker/shared';
+import { bankShare, checkSentence, checkVoice, checkWriting, copiedShare, gibberishShare, linkingUsed, looksLikeList, vocabUsedPerSentence } from '@tracker/shared';
 
 const failed = (r: { criteria: { id: string; ok: boolean }[] }) => r.criteria.filter((c) => !c.ok).map((c) => c.id);
 
@@ -21,7 +21,43 @@ describe('sentence rubric', () => {
   });
   it('rejects a copy of an earlier sentence', () => {
     const prev = 'Governments can mitigate traffic problems by building more cycle lanes.';
-    expect(failed(checkSentence({ word: 'mitigate', example: ex, text: prev, previous: [prev] }))).toContain('copy');
+    expect(failed(checkSentence({ word: 'mitigate', example: ex, text: prev, previous: [prev] }))).toContain('repeat');
+  });
+});
+
+describe('sentence tricks that must not pay', () => {
+  const ex = 'Planting trees helps mitigate the effects of air pollution.';
+  const check = (text: string, previous: string[] = []) => checkSentence({ word: 'mitigate', example: ex, text, previous });
+
+  it('one sentence of seven unrelated bank words', () => {
+    const r = check('Mitigate ubiquitous detrimental scrutiny exacerbate prevalent feasible.');
+    expect(r.ok).toBe(false);
+    expect(failed(r)).toContain('bank_share');
+  });
+  it('a set of words without sense, as a list', () => {
+    expect(failed(check('mitigate, pollution, trees, city, cars, air, problem'))).toContain('list');
+    expect(looksLikeList('Many people think that cars, buses and trains mitigate congestion in cities.')).toBe(false);
+  });
+  it('the bank example, even reworded a little', () => {
+    expect(failed(check('Planting trees helps mitigate the effects of air pollution.'))).toContain('copy');
+    expect(failed(check('Air pollution effects: planting trees helps to mitigate them.'))).toContain('copy');
+  });
+  it('an earlier sentence again, reordered', () => {
+    const prev = 'Governments can mitigate traffic problems by building more cycle lanes.';
+    expect(failed(check('By building more cycle lanes, governments can mitigate traffic problems.', [prev]))).toContain('repeat');
+  });
+  it('length is 6 to 25 words', () => {
+    expect(failed(check('We must mitigate it.'))).toContain('length');
+    expect(failed(check(`We must mitigate ${'the very long and winding '.repeat(5)}problem today.`))).toContain('length');
+  });
+  it('a bank word or two in a real sentence is fine', () => {
+    expect(bankShare('Governments can mitigate traffic problems by building more cycle lanes.').count).toBe(1);
+    expect(check('Cities should mitigate the substantial damage that heavy traffic causes to old buildings.').ok).toBe(true);
+  });
+  it('Writing: recent words count at most once per sentence', () => {
+    const words = [{ id: 1, word: 'mitigate' }, { id: 2, word: 'retain' }, { id: 3, word: 'hinder' }];
+    expect(vocabUsedPerSentence('We mitigate, retain and hinder things all day long.', words)).toHaveLength(1);
+    expect(vocabUsedPerSentence('We mitigate risks. Pupils retain facts. Noise can hinder sleep.', words)).toHaveLength(3);
   });
 });
 

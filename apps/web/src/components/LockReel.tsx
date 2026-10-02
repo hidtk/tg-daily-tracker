@@ -75,7 +75,7 @@ export function LockReel({ compact = false }: { compact?: boolean }) {
       ),
     },
     {
-      caption: t('Copy link 1 — you paste it into Shortcuts. Links 2 and 3 come later.'),
+      caption: t('Copy link 1 — you paste it into Shortcuts. Link 2 comes later.'),
       tab: null,
       screen: () => (
         <div className="demo-pad">
@@ -83,9 +83,7 @@ export function LockReel({ compact = false }: { compact?: boolean }) {
           <div className="small muted">{t('Link 1 — “Is Opened”')}</div>
           <code className="gate-url">…/gate/3f9c…?app=any&amp;e=open</code>
           <Target label={tap} side="bottom" align="start"><span className="btn sm">{t('Copy')}</span></Target>
-          <div className="small muted" style={{ marginTop: 58 }}>{t('Link 2 — “Timer”')}</div>
-          <code className="gate-url">…/gate/3f9c…?e=tick</code>
-          <div className="small muted">{t('Link 3 — “Is Closed”')}</div>
+          <div className="small muted" style={{ marginTop: 58 }}>{t('Link 2 — “Is Closed”')}</div>
           <code className="gate-url">…/gate/3f9c…?app=any&amp;e=close</code>
         </div>
       ),
@@ -145,22 +143,7 @@ export function LockReel({ compact = false }: { compact?: boolean }) {
       ),
     },
     {
-      caption: t('Below it the timer: «Repeat» 360 times — «Wait» 20 s, link 2; BLOCK → Home, STOP → stop.'),
-      tab: null,
-      screen: () => (
-        <IosScreen title={t('Actions')}>
-          <Action><Target label={tap} side="bottom" align="start">{t('Repeat')}</Target> <Tok>360</Tok></Action>
-          <div className="ios-hint-gap" />
-          <Action indent={1}>{t('Wait')} <Tok>20 s</Tok></Action>
-          <Action indent={1}>{t('Get Contents of URL')} <Tok>{t('link 2')}</Tok></Action>
-          <Action indent={1}>{t('If')} <Tok>{t('Contents of URL')}</Tok> {t('contains')} <Tok>BLOCK</Tok> → <span className="ios-go">{t('Go to Home Screen')}</span></Action>
-          <Action indent={1}>{t('If')} <Tok>{t('Contents of URL')}</Tok> {t('contains')} <Tok>STOP</Tok> → <span className="ios-go">{t('Stop This Shortcut')}</span></Action>
-          <Action>{t('End Repeat')}</Action>
-        </IosScreen>
-      ),
-    },
-    {
-      caption: t('Second automation: the same apps, only «Is Closed» → «Get Contents of URL» with link 3.'),
+      caption: t('Second automation: the same apps, only «Is Closed» → «Get Contents of URL» with link 2.'),
       tab: null,
       screen: () => (
         <IosScreen title={t('App')}>
@@ -169,12 +152,12 @@ export function LockReel({ compact = false }: { compact?: boolean }) {
             <Row right={<span />}>{t('Is Opened')}</Row>
             <Row right={check}><Target label={tap} side="bottom" align="start">{t('Is Closed')}</Target></Row>
           </div>
-          <div style={{ marginTop: 34 }}><Action>{t('Get Contents of URL')} <Tok>{t('link 3')}</Tok></Action></div>
+          <div style={{ marginTop: 34 }}><Action>{t('Get Contents of URL')} <Tok>{t('link 2')}</Tok></Action></div>
         </IosScreen>
       ),
     },
     {
-      caption: t('Check: with no minutes Instagram closes at once. Done — about 10 minutes, once.'),
+      caption: t('Check: with no minutes Instagram closes at once. When minutes run out, the server closes NextDNS by itself. Done — about 5 minutes, once.'),
       tab: null,
       screen: () => <SessionScreen start={0} note={t('No minutes — the Home Screen')} />,
     },

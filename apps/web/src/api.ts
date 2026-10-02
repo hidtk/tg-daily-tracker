@@ -1,6 +1,8 @@
 import type {
   AuthResponse,
   ProgressResponse,
+  QuizResult,
+  QuizState,
   ReadingResult,
   ReadingSubmit,
   ReadingTask,
@@ -73,6 +75,10 @@ export const api = {
   answerWord: (word_id: number, answer: string, hint: boolean) => request<VocabAnswerResult>('POST', '/api/vocab/answer', { word_id, answer, hint }),
   sentences: () => request<SentenceState>('GET', '/api/sentences'),
   submitSentence: (word_id: number, text: string) => request<SentenceResult>('POST', '/api/sentences', { word_id, text }),
+  quiz: () => request<QuizState>('GET', '/api/quiz'),
+  submitQuiz: (id: number, answers: number[]) => request<QuizResult>('POST', '/api/quiz', { id, answers }),
+  friendInvite: () => request<WalletResponse>('POST', '/api/friend/invite'),
+  friendRemove: () => request<WalletResponse>('DELETE', '/api/friend'),
   writing: (size: TaskSize) => request<WritingState>('GET', `/api/writing?size=${size}`),
   startWriting: (size: TaskSize) => request<WritingState>('POST', '/api/writing/start', { size }),
   submitWriting: (size: TaskSize, text: string) => request<WritingResult>('POST', '/api/writing', { size, text }),
@@ -82,6 +88,6 @@ export const api = {
   lockConfig: (key: string, profile: string) => request<WalletResponse>('POST', '/api/lock/config', { key, profile }),
   lockRemove: () => request<WalletResponse>('DELETE', '/api/lock/config'),
   unlock: (minutes: number) => request<WalletResponse>('POST', '/api/lock/unlock', { minutes }),
-  lockCheck: () => request<{ ok: boolean; error?: string; blocked?: Partial<Record<string, boolean>>; state: string | null; repaired?: boolean }>('GET', '/api/lock/check'),
+  lockCheck: () => request<{ ok: boolean; error?: string; blocked?: Partial<Record<string, boolean>>; state: string | null; repaired?: boolean; logs?: boolean | null }>('GET', '/api/lock/check'),
   lockNow: () => request<WalletResponse & { refunded: number }>('POST', '/api/lock/close'),
 };

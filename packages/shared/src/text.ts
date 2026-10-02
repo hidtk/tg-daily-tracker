@@ -186,3 +186,16 @@ export function vocabUsed(text: string, words: Pick<VocabWord, 'id' | 'word'>[])
   }
   return used;
 }
+
+/**
+ * Recent words used, at most one per sentence: a sentence stuffed with bank words counts for one of them,
+ * so a list of words can't stand in for using them.
+ */
+export function vocabUsedPerSentence(text: string, words: Pick<VocabWord, 'id' | 'word'>[]): number[] {
+  const out: number[] = [];
+  for (const s of text.split(/[.!?\n]+/)) {
+    const id = vocabUsed(s, words).find((x) => !out.includes(x));
+    if (id !== undefined) out.push(id);
+  }
+  return out;
+}

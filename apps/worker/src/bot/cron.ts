@@ -1,9 +1,9 @@
-import { WALLET_SESSION_MAX_MIN, timeInTz, todayInTz } from '@tracker/shared';
+import { timeInTz, todayInTz } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo } from '../lib/db';
 import { Bot } from '../lib/telegram';
 import { shopState } from '../lib/shop';
-import { closeSession } from '../api/gate';
+import { judgeKind, recheckPending } from '../lib/sentences';
 import { webappUrl } from './webhook';
 import { morningKeyboard, morningText } from './messages';
 
@@ -20,18 +20,22 @@ function inWindow(nowHHMM: string, targetHHMM: string): boolean {
   return diff >= 0 && diff < WINDOW_MIN;
 }
 
-/** Every 15 minutes: settle Shortcuts sessions that lost their close event, and send the morning message. */
-export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; stale: number }> {
+/**
+ * Every 15 minutes: sentences that waited for the model are checked again, and the morning message goes out.
+ * (Sessions are ended by the minute cron — lockSweep — when their minutes run out.)
+ */
+export async function runCron(env: Env, now = new Date()): Promise<{ morning: number; sentences: number }> {
   const repo = new Repo(env.DB);
   const bot = new Bot(env.BOT_TOKEN);
   const base = webappUrl(env);
-  const counts = { morning: 0, stale: 0 };
+  const counts = { morning: 0, sentences: 0 };
   const users = await repo.allUsers();
 
-  // Sessions whose "app closed" event never arrived (and whose timer went quiet): charge up to the last heartbeat.
-  for (const st of await repo.staleSessions(WALLET_SESSION_MAX_MIN)) {
-    const owner = users.find((x) => x.id === st.user_id);
-    if (owner && (await closeSession(repo, owner, st, now, 'stale')) >= 0) counts.stale++;
+  try {
+    const r = await recheckPending(env, now);
+    counts.sentences = r.accepted + r.rejected;
+  } catch (e) {
+    console.error('sentence recheck failed', e);
   }
 
   for (const u of users) {
@@ -39,7 +43,7 @@ export async function runCron(env: Env, now = new Date()): Promise<{ morning: nu
       const today = todayInTz(u.tz, now);
       if (!(u.ielts_daily_task ?? 1) || u.last_morning_sent === today || !inWindow(timeInTz(u.tz, now), u.morning_time)) continue;
       await repo.markMorningSent(u.id, today);
-      const shop = await shopState(repo, u, today, now);
+      const shop = await shopState(repo, u, today, now, judgeKind(env));
       const top = shop.top.map((id) => shop.tasks.find((t) => t.id === id)!).filter(Boolean);
       if (!top.length) continue;
       await bot.sendMessage(u.tg_id, morningText(top, shop.balance), morningKeyboard(base, top));

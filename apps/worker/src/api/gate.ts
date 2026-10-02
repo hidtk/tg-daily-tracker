@@ -1,16 +1,19 @@
-import { GATE_BLOCK_BELOW_SECONDS, GATE_TICK_SECONDS, GateApp, WALLET_SESSION_HARD_CAP_MIN, WALLET_SESSION_MAX_MIN, todayInTz } from '@tracker/shared';
+import { GATE_BLOCK_BELOW_SECONDS, GateApp, WALLET_SESSION_HARD_CAP_MIN, todayInTz } from '@tracker/shared';
 import type { Env } from '../env';
 import { Repo, walletSettings, type SessionRow, type UserRow } from '../lib/db';
+import { openForSession, relockAfterSession } from '../lib/lock';
 
 /**
  * Endpoint for iOS Shortcuts automations. Plain text, so a Shortcut only needs "contains":
  *   GET /gate/<api_key>?app=any&e=open    app opened → "ALLOW <min> <sec>" (a session starts) or "BLOCK 0"
- *   GET /gate/<api_key>?e=tick            every GATE_TICK_SECONDS from the timer loop → "ALLOW <min> <sec left>", "BLOCK 0 0",
+ *   GET /gate/<api_key>?app=any&e=close   app closed → the session is charged by its real time
+ *   GET /gate/<api_key>?e=tick            the optional timer loop → "ALLOW <min> <sec left>", "BLOCK 0 0",
  *                                         or "ALLOW 0 0 / STOP" when no session runs (the loop ends itself)
- *   GET /gate/<api_key>?app=any&e=close   app closed → the session is charged
  *   GET /gate/<api_key>?e=status          read-only
- * The open check in the Shortcut is "does not contain ALLOW" (no answer = no entry); the loop checks
- * "contains BLOCK", so a dropped connection mid-session doesn't throw you out — the time is charged at close anyway.
+ * The clock is on the server: a session ends when its minutes run out — on the minute cron or on any request —
+ * whether or not the Shortcut is still running. With NextDNS set up the lock opens only for a running session and
+ * closes again at its end, so the apps stop loading even if the automation was interrupted.
+ * The open check in the Shortcut is "does not contain ALLOW" (no answer = no entry).
  */
 
 function text(body: string): Response {
@@ -26,38 +29,43 @@ function secondsBetween(fromIso: string, now: Date): number {
   return Math.max(0, (now.getTime() - ms(fromIso)) / 1000);
 }
 
-export type CloseReason = 'close' | 'tick' | 'open' | 'stale';
+/** close — the app closed; tick — the timer loop saw the end; expired — the server clock ran the minutes out. */
+export type CloseReason = 'close' | 'tick' | 'expired';
 
 /**
- * Minutes to charge for a session.
- * A real end (the app closed, or the timer sent you Home) charges the real time — beyond the balance it becomes a debt.
- * Without an end event we only know the last heartbeat: charge up to it (or, with no heartbeats at all, up to
- * WALLET_SESSION_MAX_MIN), never into debt.
+ * Minutes to charge for a session. A reported end (close, tick) charges the real time — beyond the balance it becomes
+ * a debt. Without one the app counts as open until the minutes run out: the whole balance, never into debt.
  */
-export function sessionCharge(s: Pick<SessionRow, 'started_at' | 'last_seen'>, now: Date, reason: CloseReason): number {
-  const elapsed = secondsBetween(s.started_at, now);
-  let sec: number;
-  if (reason === 'close' || reason === 'tick') sec = Math.min(elapsed, WALLET_SESSION_HARD_CAP_MIN * 60);
-  else if (s.last_seen) sec = Math.min(elapsed, Math.max(0, (ms(s.last_seen) - ms(s.started_at)) / 1000) + GATE_TICK_SECONDS);
-  else sec = Math.min(elapsed, WALLET_SESSION_MAX_MIN * 60);
+export function sessionCharge(s: Pick<SessionRow, 'started_at'>, now: Date, reason: CloseReason, balance: number): number {
+  const elapsed = Math.min(secondsBetween(s.started_at, now), WALLET_SESSION_HARD_CAP_MIN * 60);
+  const sec = reason === 'expired' ? Math.min(elapsed, Math.max(0, balance) * 60) : elapsed;
   return Math.round((sec / 60) * 10) / 10;
 }
 
 /** Close an open session once and charge it. Returns the minutes charged. */
 export async function closeSession(repo: Repo, user: UserRow, session: SessionRow, now: Date, reason: CloseReason): Promise<number> {
-  const spent = sessionCharge(session, now, reason);
+  const spent = sessionCharge(session, now, reason, await repo.balance(user.id));
   if (!(await repo.endSession(session.id, spent, reason))) return 0; // already settled by a parallel request
-  if (spent > 0) {
-    const date = todayInTz(user.tz, now);
-    if (reason === 'close' || reason === 'tick') await repo.charge(user.id, date, spent, session.app);
-    else await repo.addMinutes(user.id, date, -spent, 'spend', session.app, walletSettings(user).bank_cap);
-  }
+  if (spent > 0) await repo.charge(user.id, todayInTz(user.tz, now), spent, session.app);
   return spent;
 }
 
 /** Seconds of paid time left in a running session (the balance is charged only when it ends). */
 export function secondsLeft(balance: number, s: Pick<SessionRow, 'started_at'>, now: Date): number {
   return Math.floor(balance * 60 - secondsBetween(s.started_at, now));
+}
+
+/**
+ * The server clock. Ends the user's session if its minutes are over (balance → 0) and closes the DNS lock again.
+ * Called by the minute cron, by the gate and by every API request. Returns the session that is still running.
+ */
+export async function expireSession(repo: Repo, user: UserRow, now = new Date()): Promise<SessionRow | null> {
+  const open = await repo.openSession(user.id);
+  if (!open) return null;
+  if (secondsLeft(await repo.balance(user.id), open, now) > 0) return open;
+  await closeSession(repo, user, open, now, 'expired');
+  await relockAfterSession(repo, user, now);
+  return null;
 }
 
 const allow = (min: number, sec: number, note?: string) => text(`ALLOW ${Math.max(0, Math.floor(min))} ${Math.max(0, Math.floor(sec))}${note ? `\n${note}` : ''}`);
@@ -70,6 +78,8 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
   const repo = new Repo(env.DB);
   const user = await repo.getUserByApiKey(key);
   if (!user) return text('BLOCK 0\nbad key');
+  // The Shortcut is alive: the "automation switched off" warning goes away.
+  await repo.updateUser(user.id, { gate_seen_at: now.toISOString(), lock_warning: user.lock_warning ? null : undefined });
 
   const w = walletSettings(user);
   const rawApp = (url.searchParams.get('app') ?? 'other').toLowerCase();
@@ -79,7 +89,7 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
   const app: GateApp = appParsed.success ? appParsed.data : 'other';
   const event = url.searchParams.get('e') ?? 'open';
 
-  let open = await repo.openSession(user.id);
+  const open = await expireSession(repo, user, now);
 
   // status: read-only. What would be left if the running session ended now.
   if (event === 'status') {
@@ -88,26 +98,20 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
     return left >= 60 ? allow(left / 60, left) : text('BLOCK 0');
   }
 
-  // tick: the timer loop inside the "app opened" automation. Sends you Home when the paid time is over.
+  // tick: the optional timer loop. The server ends the session by itself; the loop only makes "Home" instant.
   if (event === 'tick') {
     if (!open) {
       const last = await repo.lastSession(user.id);
       const since = last?.ended_at ? secondsBetween(last.ended_at, now) : Infinity;
-      // Time ran out but the app never reported closing (e.g. "Home" didn't happen): keep sending Home for a while.
-      if (last?.closed_by === 'tick' && since < 10 * 60) return text('BLOCK 0 0');
-      // The session went stale while the loop was asleep (phone locked) and the loop is back: the app is still open.
-      if (last?.closed_by === 'stale' && since < 12 * 3600 && w.wallet_enabled) {
-        if ((await repo.balance(user.id)) < 1) return text('BLOCK 0 0');
-        await repo.startSession(user.id, last.app);
-        open = await repo.openSession(user.id);
-      }
+      // Time ran out but the app never reported closing: keep sending Home for a while.
+      if ((last?.closed_by === 'tick' || last?.closed_by === 'expired') && since < 10 * 60) return text('BLOCK 0 0');
       // Nothing running (the app was closed): tell the loop to stop so it doesn't poll in the background.
-      if (!open) return allow(0, 0, 'STOP');
+      return allow(0, 0, 'STOP');
     }
-    const balance = await repo.balance(user.id);
-    const left = secondsLeft(balance, open, now);
+    const left = secondsLeft(await repo.balance(user.id), open, now);
     if (left <= GATE_BLOCK_BELOW_SECONDS) {
       await closeSession(repo, user, open, now, 'tick');
+      await relockAfterSession(repo, user, now);
       return text('BLOCK 0 0');
     }
     await repo.touchSession(open.id);
@@ -115,8 +119,7 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
   }
 
   // When switching apps iOS may deliver "B opened" before "A closed". A close that arrives right after
-  // a session start belongs to the previous app — keep the new session. Kept short (2 s): with the timer
-  // loop a wrongly kept session would keep running, and nobody opens and leaves an app that fast.
+  // a session start belongs to the previous app — keep the new session.
   const justStarted = open && secondsBetween(open.started_at, now) < 2;
   if (event === 'close' && justStarted) {
     const balance = await repo.balance(user.id);
@@ -124,26 +127,32 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
   }
 
   if (event === 'close') {
-    if (open) await closeSession(repo, user, open, now, 'close');
-    else {
-      // The app really left the screen after the timer sent you Home: stop repeating "BLOCK".
+    if (open) {
+      await closeSession(repo, user, open, now, 'close');
+      await relockAfterSession(repo, user, now);
+    } else {
+      // The app really left the screen after the time ran out: stop repeating "BLOCK".
       const last = await repo.lastSession(user.id);
-      if (last?.closed_by === 'tick') await repo.markKicked(last.id);
+      if (last?.closed_by === 'tick' || last?.closed_by === 'expired') await repo.markKicked(last.id);
     }
     const balance = await repo.balance(user.id);
     return balance >= 1 ? allow(balance, balance * 60) : text('BLOCK 0');
   }
 
-  // event === 'open'. A session still open here lost its close event: settle it by its last heartbeat.
-  if (open) await closeSession(repo, user, open, now, 'open');
+  // event === 'open'.
   const balance = await repo.balance(user.id);
-
   if (!w.wallet_enabled) return allow(balance, balance * 60, 'wallet off');
   if (!anyApp && !w.apps.includes(app)) return allow(balance, balance * 60, 'not gated');
-  // A paid NextDNS window is running: that time is already charged — don't charge it twice.
-  if (user.lock_state === 'open' && user.lock_until && Date.parse(user.lock_until) > now.getTime()) {
+  // A paid window from the app is running: that time is already charged — don't charge it twice.
+  if (user.lock_state === 'open' && user.lock_source !== 'session' && user.lock_until && Date.parse(user.lock_until) > now.getTime()) {
     const sec = (Date.parse(user.lock_until) - now.getTime()) / 1000;
     return allow(sec / 60, sec, 'unlock window');
+  }
+  // Another gated app, or the same one again, while the session runs: the same session continues.
+  if (open) {
+    const left = secondsLeft(balance, open, now);
+    await openForSession(repo, user, new Date(now.getTime() + left * 1000));
+    return allow(left / 60, left);
   }
 
   if (balance < 1) {
@@ -152,5 +161,7 @@ export async function handleGate(req: Request, env: Env, url: URL, now = new Dat
   }
 
   await repo.startSession(user.id, app);
+  // The DNS lock opens only for the minutes there are, and is checked again on every open.
+  await openForSession(repo, user, new Date(now.getTime() + balance * 60_000));
   return allow(balance, balance * 60);
 }

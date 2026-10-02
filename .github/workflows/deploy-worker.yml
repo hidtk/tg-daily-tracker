@@ -5,8 +5,11 @@ name: Deploy (Worker + Mini App)
 #   BOT_TOKEN             — from @BotFather
 #   SESSION_SECRET        — any long random string
 # Optional secrets: CLOUDFLARE_ACCOUNT_ID (auto-detected), D1_DATABASE_ID (auto-created by name),
-#   ANTHROPIC_API_KEY (turns on the AI opinion on Writing texts)
-# Optional variables: BOT_USERNAME (without @) — read from Telegram when unset
+#   ANTHROPIC_API_KEY (turns on the AI opinion on Writing texts), SENTENCE_JUDGE_TOKEN (bearer for an own model)
+# Optional variables: BOT_USERNAME (without @) — read from Telegram when unset;
+#   SENTENCE_JUDGE — who checks the meaning of sentences: none (default) | workers-ai | http;
+#   SENTENCE_JUDGE_URL, SENTENCE_JUDGE_MODEL (http: an OpenAI-compatible /v1/chat/completions of your own model);
+#   WORKERS_AI_DAILY_CAP (default 100, never above 200 — well inside the free Workers AI allowance)
 # SESSION_SECRET: letters, digits, _ and - only (it doubles as the webhook secret), e.g. openssl rand -hex 32
 
 on:
@@ -25,6 +28,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       HAS_BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' }}
       HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+      HAS_JUDGE_TOKEN: ${{ secrets.SENTENCE_JUDGE_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,6 +104,28 @@ jobs:
           [ -n "$NAME" ] || echo "::warning::BOT_USERNAME is not set and could not be read from Telegram; partner links will not work."
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
+      - name: Sentence judge (optional, default none)
+        id: judge
+        working-directory: apps/worker
+        env:
+          JUDGE: ${{ vars.SENTENCE_JUDGE }}
+          JUDGE_URL: ${{ vars.SENTENCE_JUDGE_URL }}
+          JUDGE_MODEL: ${{ vars.SENTENCE_JUDGE_MODEL }}
+          AI_CAP: ${{ vars.WORKERS_AI_DAILY_CAP }}
+        run: |
+          ARGS="--var SENTENCE_JUDGE:${JUDGE:-none}"
+          if [ -n "$JUDGE_URL" ]; then ARGS="$ARGS --var SENTENCE_JUDGE_URL:$JUDGE_URL"; fi
+          if [ -n "$JUDGE_MODEL" ]; then ARGS="$ARGS --var SENTENCE_JUDGE_MODEL:$JUDGE_MODEL"; fi
+          if [ -n "$AI_CAP" ]; then ARGS="$ARGS --var WORKERS_AI_DAILY_CAP:$AI_CAP"; fi
+          if [ "$JUDGE" = "workers-ai" ]; then
+            # The Workers AI binding is added only when asked for. If the deploy then fails with an auth error,
+            # add "Workers AI — Read" (Account) to CLOUDFLARE_API_TOKEN.
+            sed -i 's#"observability": { "enabled": true },#"observability": { "enabled": true },\n  "ai": { "binding": "AI" },#' wrangler.jsonc
+            grep -q '"ai": { "binding": "AI" }' wrangler.jsonc
+          fi
+          echo "::notice::Sentence judge: ${JUDGE:-none}"
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
       - name: Deploy Worker
         id: deploy
         working-directory: apps/worker
@@ -107,7 +133,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.acct.outputs.id }}
         run: |
           set +e
-          npx wrangler deploy --var BOT_USERNAME:"${{ steps.bot.outputs.name }}" 2>&1 | tee deploy.log
+          npx wrangler deploy --var BOT_USERNAME:"${{ steps.bot.outputs.name }}" ${{ steps.judge.outputs.args }} 2>&1 | tee deploy.log
           RC=${PIPESTATUS[0]}
           set -e
           if [ "$RC" != "0" ]; then
@@ -118,7 +144,7 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "::notice::Deployed to $URL"
           # WEBAPP_URL is needed by cron messages (no request origin there); set it now that we know the URL.
-          npx wrangler deploy --var BOT_USERNAME:"${{ steps.bot.outputs.name }}" --var WEBAPP_URL:"$URL" > /dev/null
+          npx wrangler deploy --var BOT_USERNAME:"${{ steps.bot.outputs.name }}" --var WEBAPP_URL:"$URL" ${{ steps.judge.outputs.args }} > /dev/null
 
       - name: Set Worker secrets
         if: env.HAS_BOT_TOKEN == 'true'
@@ -136,6 +162,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.acct.outputs.id }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: printf '%s' "$ANTHROPIC_API_KEY" | npx wrangler secret put ANTHROPIC_API_KEY
+
+      - name: Set the sentence judge token (optional)
+        if: env.HAS_JUDGE_TOKEN == 'true'
+        working-directory: apps/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.acct.outputs.id }}
+          SENTENCE_JUDGE_TOKEN: ${{ secrets.SENTENCE_JUDGE_TOKEN }}
+        run: printf '%s' "$SENTENCE_JUDGE_TOKEN" | npx wrangler secret put SENTENCE_JUDGE_TOKEN
 
       - name: Configure Telegram bot (webhook, menu button, commands)
         if: env.HAS_BOT_TOKEN == 'true'

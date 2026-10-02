@@ -3,7 +3,7 @@
  * payments, typed words, Reading parts, sentences, Writing and Speaking by the rubric, achievements and «Начать заново».
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SPEAKING_TASKS, VOCAB, WRITING_TASKS, addDays, findReadingPart, readingTaskId, timeInTz, todayInTz, wordForms } from '@tracker/shared';
+import { QUIZ_PAY, QUIZ_SIZE, SPEAKING_TASKS, VOCAB, WRITING_TASKS, type JudgeVerdict, type QuizResult, addDays, findReadingPart, readingTaskId, timeInTz, todayInTz, wordForms } from '@tracker/shared';
 import { runCron } from '../src/bot/cron';
 import { handleGate } from '../src/api/gate';
 import { handleApi } from '../src/api/routes';
@@ -11,9 +11,13 @@ import { Repo, type UserRow } from '../src/lib/db';
 import { answerWord, expectedAnswers, vocabState } from '../src/lib/vocab';
 import { submitReading } from '../src/lib/reading';
 import { shopState } from '../src/lib/shop';
-import { submitSentence, sentenceState } from '../src/lib/sentences';
+import { recheckPending, submitSentence, sentenceState } from '../src/lib/sentences';
+import { WORKERS_AI_DAILY_CAP_MAX, sentenceJudge, workersAiCap, type SentenceJudge } from '../src/lib/judge';
+import { quizState, submitQuiz } from '../src/lib/quiz';
+import { lockSweep } from '../src/lib/lock';
+import { detectBypasses, detectSwitchedOff, BYPASS_PENALTY_MIN } from '../src/lib/bypass';
 import { acceptVoice, startWriting, submitWriting } from '../src/lib/tasks';
-import { achievementsView } from '../src/lib/wallet';
+import { achievementsView, pay, taskStreak } from '../src/lib/wallet';
 import { issueToken } from '../src/lib/session';
 import { freshDb, fakeEnv, type FakeD1 } from './d1';
 
@@ -48,7 +52,7 @@ beforeEach(async () => {
 
 // ---------- the Shortcuts gate ----------
 
-describe('Shortcuts gate with the timer loop', () => {
+describe('Shortcuts gate: the clock is on the server', () => {
   const env = () => fakeEnv(db);
   const call = async (q: string, offsetSec = 0) => {
     const url = new URL(`https://app.test/gate/${user.sm_api_key}${q}`);
@@ -79,23 +83,30 @@ describe('Shortcuts gate with the timer loop', () => {
     expect(await call('?app=any&e=open', 100)).toBe('BLOCK 0');
   });
 
-  it('closing early charges the real time; overuse becomes a debt that blocks the next open', async () => {
-    await setBalance(2);
+  it('closing early charges the real time', async () => {
+    await setBalance(5);
     await call('?app=any&e=open');
-    await call('?app=any&e=close', 5 * 60); // 5 minutes with 2 paid — the timer was not set up
-    expect(await repo.balance(user.id)).toBeCloseTo(-3, 1);
-    expect(await call('?app=any&e=open', 5 * 60 + 10)).toBe('BLOCK 0\ndebt 3');
+    await call('?app=any&e=close', 2 * 60);
+    expect(await repo.balance(user.id)).toBeCloseTo(3, 1);
   });
 
-  it('a lost close event is charged up to the last heartbeat, without a debt', async () => {
+  it('no close event: the app counts as open until the minutes run out — the whole balance, never a debt', async () => {
+    await setBalance(2);
+    await call('?app=any&e=open');
+    // five minutes later the Shortcut never said "closed": the server clock ended the session at 2 min
+    expect(await call('?e=status', 5 * 60)).toBe('BLOCK 0');
+    const s = await repo.lastSession(user.id);
+    expect(s?.closed_by).toBe('expired');
+    expect(s?.minutes).toBeCloseTo(2, 1);
+    expect(await repo.balance(user.id)).toBeCloseTo(0, 1);
+    expect(await call('?app=any&e=open', 5 * 60 + 10)).toBe('BLOCK 0');
+  });
+
+  it('opening another gated app during a session continues the same session', async () => {
     await setBalance(10);
     await call('?app=any&e=open');
-    await call('?e=tick', 20);
-    // an hour later another app opens: the old session is settled by its heartbeat, not by the hour
-    await call('?app=any&e=open', 3600);
-    const [, old] = (await db.prepare('SELECT * FROM wallet_sessions ORDER BY id DESC').all<{ minutes: number; closed_by: string }>()).results;
-    expect(old.closed_by).toBe('open');
-    expect(old.minutes).toBeLessThan(1);
+    expect(await call('?app=any&e=open', 60)).toMatch(/^ALLOW (8 539|9 540)$/);
+    expect((await db.prepare('SELECT COUNT(*) AS n FROM wallet_sessions').first<{ n: number }>())?.n).toBe(1);
   });
 
   it('status is read-only', async () => {
@@ -211,17 +222,127 @@ describe('typed word review', () => {
 // ---------- sentences, Writing, Speaking ----------
 
 describe('a sentence with a word', () => {
-  it('rubric first; an accepted sentence pays 1 min, the same word not twice a day', async () => {
-    const st = await sentenceState(repo, user, today);
-    const w = st.next!;
-    const bad = await submitSentence(repo, user, today, w.id, 'Too short.');
+  const verdict = (o: Partial<JudgeVerdict> = {}): JudgeVerdict => ({ ok: true, grammar: 2, meaning: 2, uses_word_correctly: true, reason_ru: 'Хорошо.', ...o });
+  const fixed = (v: JudgeVerdict | 'unavailable'): SentenceJudge => ({ kind: 'http', judge: async () => v });
+  const good = (word: string) => `In my city the council hopes to ${word} the problem of traffic near the old market square.`;
+
+  it('without a model: the rules only, kept as practice, no minutes', async () => {
+    const st = await sentenceState(repo, user, today, 'none');
+    expect(st.pay).toBe(0);
+    const r = await submitSentence(repo, user, today, st.next!.id, good(st.next!.word), null);
+    expect(r).toMatchObject({ ok: true, status: 'practice', payout: null });
+    expect(await repo.balance(user.id)).toBe(0);
+    expect((await submitSentence(repo, user, today, st.next!.id, good(st.next!.word), null)).blocked).toBe('done_today');
+  });
+
+  it('rules first: seven unrelated bank words, a word list, the example, a repeat — none reach the model', async () => {
+    let asked = 0;
+    const judge: SentenceJudge = { kind: 'http', judge: async () => (asked++, verdict()) };
+    const w = VOCAB[0]; // alleviate
+    const seven = await submitSentence(repo, user, today, w.id, 'Alleviate ubiquitous detrimental mitigate scrutiny exacerbate prevalent.', judge);
+    expect(seven.ok).toBe(false);
+    expect(seven.check?.criteria.filter((c) => !c.ok).map((c) => c.id)).toContain('bank_share');
+    const list = await submitSentence(repo, user, today, w.id, 'alleviate, traffic, city, cars, pain, stress, noise', judge);
+    expect(list.check?.criteria.filter((c) => !c.ok).map((c) => c.id)).toContain('list');
+    const copy = await submitSentence(repo, user, today, w.id, w.example, judge);
+    expect(copy.check?.criteria.filter((c) => !c.ok).map((c) => c.id)).toContain('copy');
+    expect(asked).toBe(0);
+    // an accepted sentence, then the same sentence for the next word with the word swapped: a repeat
+    const first = await submitSentence(repo, user, today, w.id, good(w.word), judge);
+    expect(first.ok).toBe(true);
+    const next = VOCAB[3]; // mitigate
+    const again = await submitSentence(repo, user, today, next.id, good(next.word), judge);
+    expect(again.check?.criteria.filter((c) => !c.ok).map((c) => c.id)).toContain('repeat');
+    expect(asked).toBe(1);
+  });
+
+  it('the model decides the meaning: a senseless sentence is not paid and the reason is shown in Russian', async () => {
+    const w = VOCAB[3];
+    const bad = await submitSentence(repo, user, today, w.id, 'The purple mitigate was sleeping loudly under my Tuesday homework.', fixed(verdict({ ok: false, meaning: 0, uses_word_correctly: false, reason_ru: 'Бессмыслица: mitigate — глагол «смягчать».' })));
     expect(bad.ok).toBe(false);
-    expect(bad.check?.criteria.filter((c) => !c.ok).map((c) => c.id)).toEqual(expect.arrayContaining(['length']));
-    const text = `In my city the council decided to use the word ${w.word} in every report about transport and housing.`;
-    const ok = await submitSentence(repo, user, today, w.id, text);
-    expect(ok.ok).toBe(true);
+    expect(bad.verdict?.reason_ru).toContain('смягчать');
+    expect(bad.check?.criteria.find((c) => c.id === 'meaning_ai')).toMatchObject({ ok: false });
+    // the model's own "ok" is not enough: the word has to be used right
+    const wrongUse = await submitSentence(repo, user, today, w.id, good(w.word), fixed(verdict({ uses_word_correctly: false })));
+    expect(wrongUse.ok).toBe(false);
+    const ok = await submitSentence(repo, user, today, w.id, good(w.word), fixed(verdict()));
+    expect(ok).toMatchObject({ ok: true, status: 'accepted' });
     expect(ok.payout?.minutes).toBe(1);
-    expect((await submitSentence(repo, user, today, w.id, text)).blocked).toBe('done_today');
+  });
+
+  it('model unavailable: nothing paid now (fail closed), the sentence waits and is paid after the recheck', async () => {
+    const w = VOCAB[3];
+    const r = await submitSentence(repo, user, today, w.id, good(w.word), fixed('unavailable'));
+    expect(r).toMatchObject({ ok: false, status: 'pending', payout: null });
+    expect(await repo.balance(user.id)).toBe(0);
+    // the recheck with a model that is back
+    const env = { ...fakeEnv(db), SENTENCE_JUDGE: 'http', SENTENCE_JUDGE_URL: 'https://judge.test/v1/chat/completions' };
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(verdict()) } }] })));
+    try {
+      expect(await recheckPending(env)).toMatchObject({ accepted: 1 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect((await repo.earnedByKind(user.id, today)).sentence).toBe(1);
+    expect((await sentenceState(repo, user, today, 'http')).recent[0]).toMatchObject({ status: 'accepted' });
+  });
+
+  it('Workers AI stops at its daily ceiling: no call, no cost, the sentence waits', async () => {
+    let calls = 0;
+    const env = { ...fakeEnv(db), SENTENCE_JUDGE: 'workers-ai', WORKERS_AI_DAILY_CAP: '2', AI: { run: async () => (calls++, { response: verdict() }) } };
+    const judge = sentenceJudge(env, repo)!;
+    expect(judge.kind).toBe('workers-ai');
+    const w = VOCAB[3];
+    expect(await judge.judge({ word: w.word, meaning: w.meaning, text: good(w.word) })).toMatchObject({ ok: true });
+    expect(await judge.judge({ word: w.word, meaning: w.meaning, text: good(w.word) })).toMatchObject({ ok: true });
+    expect(await judge.judge({ word: w.word, meaning: w.meaning, text: good(w.word) })).toBe('unavailable');
+    expect(calls).toBe(2);
+    // the ceiling never goes above the safe maximum, whatever the setting says
+    expect(workersAiCap({ ...env, WORKERS_AI_DAILY_CAP: '100000' })).toBe(WORKERS_AI_DAILY_CAP_MAX);
+    // not configured → no judge at all
+    expect(sentenceJudge(fakeEnv(db), repo)).toBeNull();
+  });
+});
+
+describe('«Быстрый тест»', () => {
+  const rightAnswers = async (id: number) => {
+    const row = await repo.quizSet(user.id, id);
+    return (JSON.parse(row!.questions) as { word_id: number; options: number[] }[]).map((q) => q.options.indexOf(q.word_id));
+  };
+  const ago = (id: number, sec: number) => db.prepare(`UPDATE quiz_sets SET started_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-${sec} seconds') WHERE id = ?`).bind(id).run();
+
+  it('five choice questions without the key; 4+ right pays, too fast pays nothing, a set is answered once', async () => {
+    const st = await quizState(repo, user, today);
+    expect(st.set?.questions).toHaveLength(QUIZ_SIZE);
+    for (const q of st.set!.questions) {
+      expect(q.options).toHaveLength(4);
+      expect(JSON.stringify(q)).not.toMatch(/word_id|answer/);
+    }
+    const id = st.set!.id;
+    const fast = await submitQuiz(repo, user, today, id, await rightAnswers(id));
+    expect(fast).toMatchObject({ correct: QUIZ_SIZE, fast: true });
+    expect(await repo.balance(user.id)).toBe(0);
+    expect(await submitQuiz(repo, user, today, id, [])).toBe('already');
+
+    const next = (fast as QuizResult).state.set!;
+    await ago(next.id, 60);
+    const answers = await rightAnswers(next.id);
+    answers[0] = (answers[0] + 1) % 4; // one wrong: 4 of 5 still passes
+    const r = await submitQuiz(repo, user, today, next.id, answers);
+    expect(r).toMatchObject({ correct: QUIZ_SIZE - 1, passed: true, fast: false });
+    expect((r as QuizResult).payout.minutes).toBe(QUIZ_PAY);
+
+    const third = (r as QuizResult).state.set!;
+    await ago(third.id, 60);
+    const miss = (await rightAnswers(third.id)).map((x) => (x + 1) % 4);
+    expect(await submitQuiz(repo, user, today, third.id, miss)).toMatchObject({ correct: 0, passed: false });
+    expect((await repo.earnedByKind(user.id, today)).quiz).toBe(QUIZ_PAY);
+  });
+
+  it('is in the shop and among the vocabulary suggestions', async () => {
+    const shop = await shopState(repo, user, today);
+    expect(shop.tasks.find((t) => t.id === 'quiz')).toMatchObject({ status: 'open', price: QUIZ_PAY });
+    expect(shop.tasks.find((t) => t.id === 'sentence')?.price).toBe(0);
   });
 });
 
@@ -293,7 +414,7 @@ describe('the shop', () => {
     const shop = await shopState(repo, user, today);
     expect(shop.top).toHaveLength(3);
     const top = shop.top.map((id) => shop.tasks.find((t) => t.id === id)!);
-    expect(new Set(top.map((t) => (t.kind === 'reading' ? 'r' : t.kind === 'words' || t.kind === 'sentence' ? 'v' : 'o'))).size).toBe(3);
+    expect(new Set(top.map((t) => (t.kind === 'reading' ? 'r' : t.kind === 'words' || t.kind === 'quiz' || t.kind === 'sentence' ? 'v' : 'o'))).size).toBe(3);
     expect(top.every((t) => t.minutes <= 10)).toBe(true);
     for (const t of shop.tasks) {
       expect(t.minutes).toBeGreaterThan(0);
@@ -391,5 +512,150 @@ describe('the optional AI check on Writing', () => {
     const r = await submitWriting(repo, user, today, 'long', ESSAY(['mitigate', 'retain', 'hinder']), 'test-key');
     expect(r.ok).toBe(true);
     expect(r.ai).toBeNull();
+  });
+});
+
+// ---------- the DNS lock on the server clock, and bypasses ----------
+
+/** A fake NextDNS + Telegram: records calls, answers the log with `logs`. */
+function fakeNet(logs: { timestamp: string; domain: string; status: string }[] = [], blocked = true) {
+  const calls: { method: string; url: string; body: unknown }[] = [];
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ method: init?.method ?? 'GET', url, body });
+    if (url.includes('/logs')) return new Response(JSON.stringify({ data: logs, meta: { pagination: { cursor: null } } }));
+    if (url.includes('api.telegram.org')) return new Response(JSON.stringify({ ok: true, result: {} }));
+    if (/\/profiles\/[a-z0-9]+$/.test(url)) {
+      const services = ['instagram', 'tiktok', 'youtube', 'vk'].map((id) => ({ id, active: blocked }));
+      return new Response(JSON.stringify({ data: { parentalControl: { services }, denylist: [], settings: { logs: { enabled: true } } } }));
+    }
+    return new Response(JSON.stringify({ data: {} }));
+  });
+  return {
+    calls,
+    locks: () => calls.filter((c) => c.method === 'PATCH' && c.url.includes('/parentalControl/services/')).map((c) => (c.body as { active: boolean }).active),
+    messages: () => calls.filter((c) => c.url.includes('sendMessage')).map((c) => c.body as { chat_id: number; text: string }),
+  };
+}
+
+describe('the DNS lock follows the server clock', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const env = () => fakeEnv(db);
+  const at = (sec: number) => new Date(Date.now() + sec * 1000);
+  const gate = async (q: string, sec = 0) => {
+    const url = new URL(`https://app.test/gate/${user.sm_api_key}${q}`);
+    return (await handleGate(new Request(url), env(), url, at(sec))).text();
+  };
+  beforeEach(async () => {
+    await repo.updateUser(user.id, { nextdns_key: 'k'.repeat(20), nextdns_profile: 'abc123', lock_state: 'locked' });
+    await reload();
+  });
+
+  it('1 minute: the lock opens for it; 61 s later the state is BLOCK and the lock closes by itself (lockNow)', async () => {
+    const net = fakeNet();
+    await setBalance(1);
+    expect(await gate('?app=any&e=open')).toBe('ALLOW 1 60');
+    expect(net.locks()).toEqual([false, false, false, false]);
+    expect((await repo.getUserById(user.id))?.lock_source).toBe('session');
+    // the Shortcut went quiet (no tick, no close): the minute cron alone ends it
+    await lockSweep(env(), at(61));
+    expect(net.locks().slice(4)).toEqual([true, true, true, true]);
+    const u = (await repo.getUserById(user.id))!;
+    expect(u.lock_state).toBe('locked');
+    expect(await repo.balance(user.id)).toBeCloseTo(0, 5);
+    expect((await repo.lastSession(user.id))?.closed_by).toBe('expired');
+    expect(await gate('?e=status', 61)).toBe('BLOCK 0');
+    expect(await gate('?e=tick', 61)).toBe('BLOCK 0 0');
+    expect(await gate('?app=any&e=open', 62)).toBe('BLOCK 0');
+    // no second unlock: no minutes
+    expect(net.locks()).toHaveLength(8);
+  });
+
+  it('any API request also ends a session that ran out', async () => {
+    fakeNet();
+    await setBalance(1);
+    await gate('?app=any&e=open');
+    await db.prepare("UPDATE wallet_sessions SET started_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 minutes')").run();
+    const token = await issueToken(user.tg_id, 's');
+    await handleApi(new Request('https://app.test/api/shop', { headers: { authorization: `Bearer ${token}` } }), env(), new URL('https://app.test/api/shop'));
+    expect((await repo.lastSession(user.id))?.closed_by).toBe('expired');
+    expect((await repo.getUserById(user.id))?.lock_state).toBe('locked');
+  });
+
+  it('closing the app closes the lock at once and charges the real time', async () => {
+    const net = fakeNet();
+    await setBalance(10);
+    await gate('?app=any&e=open');
+    await gate('?app=any&e=close', 90);
+    expect(net.locks()).toEqual([false, false, false, false, true, true, true, true]);
+    expect(await repo.balance(user.id)).toBeCloseTo(8.5, 1);
+  });
+});
+
+describe('bypasses in the NextDNS log', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const env = () => fakeEnv(db);
+  const iso = (secAgo: number) => new Date(Date.now() - secAgo * 1000).toISOString();
+  beforeEach(async () => {
+    await repo.updateUser(user.id, { nextdns_key: 'k'.repeat(20), nextdns_profile: 'abc123', lock_state: 'locked', bypass_checked_at: iso(15 * 60), partner_chat_id: 555, partner_name: 'Ann' });
+    await reload();
+  });
+
+  it('social media resolved with no minutes and no session: penalty debt, streak reset, a line in Progress, messages', async () => {
+    const net = fakeNet([
+      { timestamp: iso(8 * 60), domain: 'i.instagram.com', status: 'default' },
+      { timestamp: iso(5 * 60), domain: 'scontent.cdninstagram.com', status: 'default' },
+      { timestamp: iso(4 * 60), domain: 'www.tiktok.com', status: 'blocked' }, // the lock working, not a bypass
+      { timestamp: iso(3 * 60), domain: 'example.com', status: 'default' },
+    ]);
+    await pay(repo, user, yesterday, 'words', 1, 'x'); // a streak to lose
+    await pay(repo, user, today, 'words', 1, 'y');
+    expect((await taskStreak(repo, user, today)).current).toBe(2);
+    expect(await detectBypasses(env(), repo, user)).toBe(1);
+    await reload();
+    expect(await repo.balance(user.id)).toBeCloseTo(2 - (BYPASS_PENALTY_MIN + 3), 1);
+    expect((await taskStreak(repo, user, today)).current).toBe(0);
+    const list = await repo.bypassList(user.id);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ app: 'instagram', minutes: 3, penalty: BYPASS_PENALTY_MIN + 3 });
+    expect(net.messages().map((m) => m.chat_id)).toEqual([user.tg_id, 555]);
+    // read again: the same visit is not counted twice
+    await repo.updateUser(user.id, { bypass_checked_at: iso(15 * 60) });
+    await reload();
+    expect(await detectBypasses(env(), repo, user)).toBe(0);
+    // a blocked open of the app sends no message (only bypasses do)
+    expect(net.messages()).toHaveLength(2);
+  });
+
+  it('use inside a paid session is not a bypass', async () => {
+    fakeNet([{ timestamp: iso(60), domain: 'i.instagram.com', status: 'default' }]);
+    await setBalance(10);
+    const url = new URL(`https://app.test/gate/${user.sm_api_key}?app=any&e=open`);
+    await handleGate(new Request(url), env(), url, new Date(Date.now() - 120_000));
+    await db.prepare("UPDATE wallet_sessions SET started_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 minutes')").run();
+    await reload();
+    expect(await detectBypasses(env(), repo, user)).toBe(0);
+  });
+
+  it('our own failure to close the lock is not punished', async () => {
+    fakeNet([{ timestamp: iso(5 * 60), domain: 'i.instagram.com', status: 'default' }]);
+    await repo.updateUser(user.id, { lock_error: 'NextDNS error 500' });
+    await reload();
+    expect(await detectBypasses(env(), repo, user)).toBe(0);
+    expect(await repo.balance(user.id)).toBe(0);
+  });
+
+  it('the Shortcut silent for a day while NextDNS sees the apps: the banner, until the Shortcut calls again', async () => {
+    fakeNet([{ timestamp: iso(3600), domain: 'i.instagram.com', status: 'blocked' }]);
+    await repo.updateUser(user.id, { gate_seen_at: iso(25 * 3600) });
+    await reload();
+    expect(await detectSwitchedOff(repo, user, new Date(), env())).toBe(true);
+    await reload();
+    expect((await shopState(repo, user, today)).lock_alert).not.toBeNull();
+    const url = new URL(`https://app.test/gate/${user.sm_api_key}?e=status`);
+    await handleGate(new Request(url), env(), url);
+    await reload();
+    expect((await shopState(repo, user, today)).lock_alert).toBeNull();
   });
 });

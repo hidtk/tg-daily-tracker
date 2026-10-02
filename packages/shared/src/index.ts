@@ -121,7 +121,7 @@ export const DEFAULT_WALLET_SETTINGS: WalletSettings = {
   apps: ['instagram', 'tiktok', 'youtube', 'vk'],
 };
 
-export type LedgerReason = 'reading' | 'words' | 'sentence' | 'writing' | 'speaking' | 'achievement' | 'spend' | 'manual';
+export type LedgerReason = 'reading' | 'words' | 'quiz' | 'sentence' | 'writing' | 'speaking' | 'achievement' | 'spend' | 'manual' | 'penalty';
 
 export interface WalletLedgerEntry {
   id: number;
@@ -142,6 +142,8 @@ export interface WalletResponse extends WalletSettings {
   earn_left: number;
   gate_url: string;
   lock: LockState;
+  /** the lock buddy: a friend whose Telegram gets a message about every bypass */
+  friend: { name: string | null; invite: string | null };
 }
 
 /** DNS lock driven by the wallet. */
@@ -272,20 +274,78 @@ export interface VocabAnswerResult {
 
 export const SentenceSubmitSchema = z.object({ word_id: z.number().int().min(1), text: z.string().min(1).max(400) });
 
+/** Who checks the meaning of a sentence: nobody (rules only, no minutes), Workers AI, or an own model over HTTP. */
+export type JudgeKind = 'none' | 'workers-ai' | 'http';
+
+/** The model's verdict on a sentence (strict JSON). */
+export interface JudgeVerdict {
+  ok: boolean;
+  /** 0 — many mistakes, 1 — small mistakes, 2 — correct */
+  grammar: number;
+  /** 0 — nonsense, 1 — unclear, 2 — makes sense */
+  meaning: number;
+  uses_word_correctly: boolean;
+  /** why, in plain Russian */
+  reason_ru: string;
+}
+
+/** accepted — checked and paid; pending — the model was unavailable, checked later; practice — no model, no minutes. */
+export type SentenceStatus = 'accepted' | 'pending' | 'practice' | 'rejected';
+
 export interface SentenceState {
   today: string;
   count: number;
   per_day: number;
   next: { id: number; word: string; ipa: string; pos: string; meaning: string; ru: string } | null;
+  judge: JudgeKind;
+  /** minutes a sentence pays now (0 without a model) */
+  pay: number;
+  /** today's sentences with what happened to them, newest first */
+  recent: { word: string; text: string; status: SentenceStatus; reason: string | null }[];
 }
 
 export interface SentenceResult {
   ok: boolean;
   /** why nothing was checked: limit reached, word already used today */
   blocked: 'limit' | 'done_today' | null;
+  /** what happened to a sentence that passed the rules (null when it didn't) */
+  status: SentenceStatus | null;
   check: CheckResult | null;
+  verdict: JudgeVerdict | null;
   state: SentenceState;
   payout: Payout | null;
+}
+
+// ---------- «Быстрый тест» ----------
+
+export interface QuizQuestion {
+  kind: 'cloze' | 'meaning';
+  /** cloze: the bank example with a gap; meaning: the word */
+  prompt: string;
+  options: string[];
+}
+
+export interface QuizState {
+  today: string;
+  /** the set to answer now (null: none left today) */
+  set: { id: number; n: number; questions: QuizQuestion[] } | null;
+  done_today: number;
+  per_day: number;
+  pay: number;
+  pass: number;
+}
+
+export const QuizSubmitSchema = z.object({ id: z.number().int().min(1), answers: z.array(z.number().int().min(-1).max(9)).max(20) });
+
+export interface QuizResult {
+  correct: number;
+  total: number;
+  passed: boolean;
+  fast: boolean;
+  /** the right option per question, shown after the answer */
+  right: number[];
+  payout: Payout;
+  state: QuizState;
 }
 
 // ---------- Writing ----------
@@ -350,4 +410,6 @@ export interface ProgressResponse {
   totals: { tasks: number; earned: number; study_minutes: number; words_learned: number };
   /** latest wallet movements */
   ledger: WalletLedgerEntry[];
+  /** bypasses the server noticed in the NextDNS logs, newest first */
+  bypasses: { at: string; date: string; app: string; minutes: number; penalty: number }[];
 }

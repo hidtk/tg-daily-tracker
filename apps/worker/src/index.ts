@@ -69,7 +69,8 @@ export default {
   },
 
   async scheduled(event, env, ctx): Promise<void> {
-    // Every minute: close expired unlock windows. Every 15 minutes: stale Shortcuts sessions and the morning message.
+    // Every minute: sessions whose minutes ran out, expired windows, and (every 5 min) bypasses in the NextDNS log.
+    // Every 15 minutes: waiting sentences and the morning message.
     if (event.cron === '* * * * *') {
       ctx.waitUntil(lockSweep(env).then((n) => n && console.log('locks closed', n)));
       return;

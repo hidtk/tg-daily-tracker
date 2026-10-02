@@ -6,20 +6,34 @@ import { HARD_TESTS } from './hard';
 import { READING_TESTS, type QuestionType, type ReadingQuestion, type ReadingTest } from './reading';
 import { SPEAKING_RULES, WRITING_RULES, type TaskSize } from './check';
 
-export type ShopKind = 'reading' | 'words' | 'sentence' | 'writing' | 'speaking';
+export type ShopKind = 'reading' | 'words' | 'quiz' | 'sentence' | 'writing' | 'speaking';
 export type Level = 1 | 2 | 3;
 
 /** Ledger reasons for earned minutes (they count towards the daily limit). */
-export const EARN_KINDS: ShopKind[] = ['reading', 'words', 'sentence', 'writing', 'speaking'];
+export const EARN_KINDS: ShopKind[] = ['reading', 'words', 'quiz', 'sentence', 'writing', 'speaking'];
 
 // ---------- Prices ----------
 
 /** Words: each right typed answer (no hint) pays WORD_PAY, at most WORDS_PAID_PER_DAY a day. */
 export const WORD_PAY = 0.5;
 export const WORDS_PAID_PER_DAY = 10;
-/** Sentences: SENTENCES_PER_DAY a day, SENTENCE_PAY each. */
+/**
+ * Sentences: SENTENCES_PER_DAY a day, SENTENCE_PAY each — only when a model checked the meaning. Without a model
+ * (the default) a sentence passes the rules only and pays nothing: it is practice, the rules alone can't tell sense
+ * from a string of words.
+ */
 export const SENTENCE_PAY = 1;
 export const SENTENCES_PER_DAY = 5;
+/**
+ * «Быстрый тест»: QUIZ_SIZE multiple-choice questions (a gap in a bank example, the meaning of a word), checked by the
+ * key. QUIZ_PASS or more right pays QUIZ_PAY; QUIZ_SETS_PER_DAY sets a day. Faster than QUIZ_MIN_SECONDS per question
+ * is tapping at random — nothing.
+ */
+export const QUIZ_SIZE = 5;
+export const QUIZ_PASS = 4;
+export const QUIZ_PAY = 1;
+export const QUIZ_SETS_PER_DAY = 5;
+export const QUIZ_MIN_SECONDS = 4;
 
 export const WRITING_TASKS: Record<TaskSize, { price: number; minutes: number; level: Level }> = {
   short: { price: 5, minutes: 8, level: 1 },
@@ -165,6 +179,8 @@ export interface ShopResponse {
   earn_left: number;
   /** a Shortcuts session running right now */
   session: { app: string; seconds_left: number } | null;
+  /** the Shortcut has been silent for a day while NextDNS saw social media: the automation looks switched off */
+  lock_alert: { since: string } | null;
   tasks: ShopTask[];
   /** the three best tasks right now (ids from `tasks`) */
   top: string[];
@@ -187,7 +203,7 @@ export function pickTop(tasks: ShopTask[], n = 3): string[] {
   const byValue = (a: ShopTask, b: ShopTask) => value(b) - value(a) || a.minutes - b.minutes;
   const best = (list: ShopTask[]) => [...list.filter((t) => t.minutes <= TOP_MAX_MINUTES)].sort(byValue)[0] ?? [...list].sort(byValue)[0];
   const picks: ShopTask[] = [];
-  const groups: ShopKind[][] = [['reading'], ['words', 'sentence'], ['writing', 'speaking']];
+  const groups: ShopKind[][] = [['reading'], ['words', 'quiz', 'sentence'], ['writing', 'speaking']];
   for (const g of groups) {
     const b = best(doable.filter((t) => g.includes(t.kind)));
     if (b) picks.push(b);

@@ -110,7 +110,7 @@ export function DemoReel({ compact = false }: { compact?: boolean }) {
       screen: () => (
         <div className="demo-pad">
           <Balance minutes={0} open={false} />
-          <div className="section small"><b>{t('Social-media lock')}</b><div className="muted">{t('Without it social media opens freely. It takes about 10 minutes, once.')}</div></div>
+          <div className="section small"><b>{t('Social-media lock')}</b><div className="muted">{t('Without it social media opens freely. It takes about 5 minutes, once.')}</div></div>
         </div>
       ),
     },

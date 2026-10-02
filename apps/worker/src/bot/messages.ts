@@ -40,6 +40,7 @@ export function helpText(): string {
 const TASK_NAME: Record<ShopTask['kind'], string> = {
   reading: 'Reading',
   words: 'Words',
+  quiz: 'Quick test',
   sentence: 'A sentence with a word',
   writing: 'Writing',
   speaking: 'Speaking',
